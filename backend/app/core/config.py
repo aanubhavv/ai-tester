@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     api_prefix: str = "/api/v1"
     debug: bool = False
+    screenshots_dir: str = "app/screenshots"
 
     model_config = SettingsConfigDict(
         env_file=".env", 
