@@ -1,18 +1,46 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+import logging
+
+from app.core.config import settings
+from app.core.logging import setup_logging
+from app.core.exceptions import global_exception_handler
+from app.api.v1.router import api_router
+from app.api.v1.endpoints.root import router as root_router
+
+logger = logging.getLogger(__name__)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    setup_logging()
+    logger.info(f"Starting {settings.app_name} in {settings.app_env} environment...")
+    yield
+    logger.info(f"Shutting down {settings.app_name}...")
 
 app = FastAPI(
-    title="QAForge API",
-    version="1.0.0"
+    title=settings.app_name,
+    description="Clean Architecture Refactor for FastAPI",
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url="/docs" if settings.debug else None,
+    redoc_url="/redoc" if settings.debug else None,
 )
 
-@app.get("/")
-def root():
-    return {
-        "message": "Welcome to QAForge API"
-    }
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.get("/health")
-def health():
-    return {
-        "status": "healthy"
-    }
+# Global Exception Handler
+app.add_exception_handler(Exception, global_exception_handler)
+
+# Include root endpoint
+app.include_router(root_router)
+
+# Include API v1 endpoints
+app.include_router(api_router, prefix=settings.api_prefix)
