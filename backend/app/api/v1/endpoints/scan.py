@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from app.schemas.scan import ScanRequest, ScanResponse
 from app.services.browser_service import BrowserService, ScanError
+from app.services.page_readiness import ReadinessConfig
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -27,8 +28,16 @@ def scan_website(request: ScanRequest):
     - Everything else → Falls through to the global exception handler (500)
     """
     try:
+        # Build readiness config from environment settings.
+        # The full ReadinessConfig has many options with sensible defaults;
+        # we only override the values exposed in Settings for .env tuning.
+        readiness_config = ReadinessConfig(
+            max_wait_seconds=settings.readiness_max_wait_seconds,
+            final_delay_seconds=settings.readiness_final_delay_seconds,
+        )
+
         service = BrowserService(screenshots_dir=settings.screenshots_dir)
-        result = service.scan_url(str(request.url))
+        result = service.scan_url(str(request.url), readiness_config=readiness_config)
         return ScanResponse(**result)
 
     except ScanError as exc:

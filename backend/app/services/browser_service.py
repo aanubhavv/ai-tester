@@ -5,6 +5,8 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout, Error as PlaywrightError
 
+from app.services.page_readiness import PageReadinessEngine, ReadinessConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,23 +57,29 @@ class BrowserService:
         self._screenshots_dir = Path(screenshots_dir)
         self._screenshots_dir.mkdir(parents=True, exist_ok=True)
 
-    def scan_url(self, url: str) -> dict:
+    def scan_url(self, url: str, readiness_config: ReadinessConfig | None = None) -> dict:
         """
         Open a browser, navigate to the URL, and collect page information.
 
         This is the single public method of the service. It:
         1. Launches a headless Chromium browser
         2. Navigates to the given URL
-        3. Waits for the page to reach 'networkidle' state
+        3. Runs the Page Readiness Engine to wait for the page to stabilize
         4. Extracts the page title and final URL (after redirects)
         5. Captures a full-page screenshot
         6. Returns all collected data as a dictionary
+
+        Args:
+            url: The URL to scan.
+            readiness_config: Optional readiness configuration. If None,
+                              uses default ReadinessConfig values.
 
         Raises:
             ScanError: If any browser or network error occurs.
                        The original error is logged, and a clean
                        user-facing message is raised.
         """
+        config = readiness_config or ReadinessConfig()
         logger.info(f"Starting scan for URL: {url}")
         start_time = time.time()
 
@@ -82,13 +90,26 @@ class BrowserService:
                 try:
                     page = browser.new_page()
 
-                    # Navigate and wait for network to settle.
-                    # 'networkidle' waits until there are no more than
-                    # 0 network connections for at least 500ms — this
-                    # gives us the most "complete" page state.
-                    response = page.goto(url, wait_until="networkidle", timeout=30000)
+                    # Navigate to the URL.
+                    # The wait_until strategy is the first layer of readiness:
+                    # - 'networkidle': wait for 0 network connections for 500ms
+                    #   (best for pages that load everything upfront)
+                    # - 'domcontentloaded': just wait for HTML to be parsed
+                    #   (faster, but the readiness engine handles the rest)
+                    wait_strategy = "networkidle"
+                    response = page.goto(url, wait_until=wait_strategy, timeout=30000)
 
-                    # Calculate load time before doing anything else
+                    # Run the Page Readiness Engine.
+                    # This is where the real waiting happens — fonts, images,
+                    # skeleton detection, DOM stability, layout stability.
+                    # BrowserService doesn't know HOW readiness is determined;
+                    # it just delegates and trusts the engine.
+                    readiness_engine = PageReadinessEngine(page, config)
+                    readiness_engine.wait_until_ready()
+
+                    # Calculate load time AFTER readiness completes.
+                    # From the user's perspective, the page isn't "loaded"
+                    # until it's visually stable.
                     load_time = round(time.time() - start_time, 2)
 
                     # Extract page information
