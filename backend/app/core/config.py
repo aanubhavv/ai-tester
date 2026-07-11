@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     screenshots_dir: str = "app/screenshots"
     readiness_max_wait_seconds: float = 30.0
     readiness_final_delay_seconds: float = 0.5
+    readiness_wait_for_videos: bool = True
+    readiness_videos_timeout_ms: int = 8000
 
     model_config = SettingsConfigDict(
         env_file=".env", 

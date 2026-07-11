@@ -99,6 +99,21 @@ class ReadinessConfig:
     wait_for_images: bool = True
     images_timeout_ms: int = 10000
 
+    # --- Videos ---
+    # Polls all <video> elements that are expected to load (preload != "none")
+    # until HTMLMediaElement.readyState >= HAVE_CURRENT_DATA (2).
+    #
+    # readyState >= 2 means at least one decoded video frame is in the buffer,
+    # which is the minimum required for the video to appear in a screenshot.
+    #
+    # Videos with preload="none" are skipped — they intentionally defer loading
+    # until user interaction, so a black frame or poster is the expected render.
+    #
+    # iframe-embedded players (YouTube, Vimeo) are out of scope: cross-origin
+    # restrictions prevent readyState inspection inside iframes.
+    wait_for_videos: bool = True
+    videos_timeout_ms: int = 8000
+
     # --- Skeleton / Loading indicators ---
     # Polls for elements matching common skeleton CSS selectors and waits
     # for them to disappear. This is the #1 cause of "ugly screenshots."
@@ -170,21 +185,27 @@ class PageReadinessEngine:
         if self._config.wait_for_images and self._has_time_remaining():
             self._wait_for_images()
 
-        # Step 3: Skeleton/loading indicators (content swaps → must come
+        # Step 3: Videos (must come before skeletons — skeleton→video transitions
+        # are a primary source of black-frame screenshots; we want the video
+        # buffer primed before we declare the skeleton gone)
+        if self._config.wait_for_videos and self._has_time_remaining():
+            self._wait_for_videos()
+
+        # Step 4: Skeleton/loading indicators (content swaps → must come
         # before stability checks, since skeleton→content transition changes
         # both DOM and layout)
         if self._config.wait_for_skeletons and self._has_time_remaining():
             self._wait_for_skeletons()
 
-        # Step 4: DOM stability (verify no more structural changes)
+        # Step 5: DOM stability (verify no more structural changes)
         if self._has_time_remaining():
             self._wait_for_dom_stability()
 
-        # Step 5: Layout stability (verify no more height/position changes)
+        # Step 6: Layout stability (verify no more height/position changes)
         if self._has_time_remaining():
             self._wait_for_layout_stability()
 
-        # Step 6: Final delay (safety net for animations and paint)
+        # Step 7: Final delay (safety net for animations and paint)
         if self._config.final_delay_seconds > 0:
             logger.debug(
                 f"Final stabilization delay: {self._config.final_delay_seconds}s"
@@ -270,6 +291,114 @@ class PageReadinessEngine:
         logger.warning(
             f"Image loading timed out after {self._config.images_timeout_ms}ms "
             f"— proceeding with potentially unloaded images"
+        )
+
+    def _wait_for_videos(self) -> None:
+        """
+        Wait for HTML5 <video> elements to have at least one decoded frame
+        available for rendering.
+
+        Uses HTMLMediaElement.readyState, a synchronous integer property that
+        reflects the current decoding state without relying on events:
+
+            0  HAVE_NOTHING      — no data received yet
+            1  HAVE_METADATA     — dimensions known, no frame data
+            2  HAVE_CURRENT_DATA — ≥1 frame decoded at current position  ← our target
+            3  HAVE_FUTURE_DATA  — current + next frame available
+            4  HAVE_ENOUGH_DATA  — enough buffered to play without stalling
+
+        Why readyState >= 2 and not events (loadeddata / canplay):
+        - Events are one-shot: if the video loaded before this engine ran
+          (common for autoplay/preloaded videos), the event has already fired
+          and attaching a listener at this point will never resolve.
+        - readyState is always current — polling it is safe at any time.
+
+        Why not HAVE_ENOUGH_DATA (4):
+        - Streaming video (HLS, DASH) or very large files may buffer only the
+          first few frames initially. readyState 4 may never be reached within
+          a useful timeout, causing every scan of streaming-heavy pages to time
+          out on every run.
+
+        Videos with preload="none" are excluded: they intentionally do not
+        load until the user interacts. A black frame is the expected initial
+        render for those elements — waiting is pointless.
+
+        Cross-origin iframe-embedded players (YouTube, Vimeo) are inaccessible
+        due to the browser same-origin policy and are silently ignored.
+        """
+        logger.debug("Waiting for video elements to reach readyState \u2265 2...")
+        timeout_seconds = self._config.videos_timeout_ms / 1000
+        deadline = time.time() + timeout_seconds
+
+        # Returns a structured snapshot of video readiness state.
+        # preload="none" videos are excluded from the "relevant" count so we
+        # never block on intentionally-deferred videos.
+        check_videos_js = """
+        () => {
+            const videos = Array.from(document.querySelectorAll('video'));
+            if (videos.length === 0) {
+                return { total: 0, relevant: 0, ready: 0, done: true };
+            }
+
+            // Exclude videos the developer explicitly said should not preload.
+            // readyState < 2 on a preload=none video is intentional, not a bug.
+            const relevant = videos.filter(
+                v => v.preload !== 'none' || v.readyState >= 2
+            );
+
+            // HAVE_CURRENT_DATA (2) = at least one decoded frame in the buffer.
+            const ready = relevant.filter(v => v.readyState >= 2).length;
+
+            return {
+                total: videos.length,
+                relevant: relevant.length,
+                ready: ready,
+                done: ready >= relevant.length
+            };
+        }
+        """
+
+        while time.time() < deadline and self._has_time_remaining():
+            try:
+                result = self._page.evaluate(check_videos_js)
+            except Exception as exc:
+                logger.warning(f"Video readiness check failed: {exc} — proceeding")
+                return
+
+            total: int = result["total"]
+            relevant: int = result["relevant"]
+            ready: int = result["ready"]
+            done: bool = result["done"]
+
+            if total == 0:
+                logger.debug("No <video> elements found — skipping video readiness check")
+                return
+
+            if done:
+                logger.debug(
+                    f"Videos ready: {ready}/{relevant} relevant "
+                    f"({total - relevant} excluded with preload=\"none\")"
+                )
+                return
+
+            logger.debug(
+                f"Videos: {ready}/{relevant} ready "
+                f"(total={total}, preload=none excluded={total - relevant}) — waiting..."
+            )
+            time.sleep(0.3)
+
+        # Timed out — log a warning but do not raise; a partially-loaded video
+        # is better than a blocked scan.
+        try:
+            final = self._page.evaluate(check_videos_js)
+            ready_final: int = final["ready"]
+            relevant_final: int = final["relevant"]
+        except Exception:
+            ready_final, relevant_final = 0, 0
+
+        logger.warning(
+            f"Video readiness timed out after {self._config.videos_timeout_ms}ms "
+            f"— {ready_final}/{relevant_final} relevant videos ready, proceeding"
         )
 
     def _wait_for_skeletons(self) -> None:
