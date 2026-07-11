@@ -1,7 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    app_name: str = "FastAPI App"
+    app_name: str = "QAForge"
     app_env: str = "development"
     api_prefix: str = "/api/v1"
     debug: bool = False
