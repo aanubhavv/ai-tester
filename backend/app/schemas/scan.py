@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel, HttpUrl
 from app.schemas.analysis import AnalysisResponse
 
@@ -16,14 +18,54 @@ class ScanRequest(BaseModel):
     url: HttpUrl
 
 
+# ---------------------------------------------------------------------------
+# Readiness Report Models
+# ---------------------------------------------------------------------------
+# These models represent the readiness engine's structured output in the
+# API response. They convert from the internal ReadinessResult/CheckResult
+# dataclasses (in readiness_models.py) to Pydantic models for JSON
+# serialisation and OpenAPI documentation.
+
+class ReadinessCheckSchema(BaseModel):
+    """
+    A single readiness check result as returned in the API response.
+
+    Maps 1:1 to the internal CheckResult dataclass, but using Pydantic
+    for serialisation and schema generation.
+    """
+    name: str
+    passed: bool
+    elapsed_ms: float
+    message: str
+
+
+class ReadinessReportSchema(BaseModel):
+    """
+    Aggregated readiness report for the scan response.
+
+    Splits checks into completed (passed) and failed (timed out / errored)
+    for easy consumption by API clients and future AI analysis.
+    """
+    completed: list[ReadinessCheckSchema]
+    failed: list[ReadinessCheckSchema]
+    total_elapsed_seconds: float
+    scan_quality_score: float
+
+
+# ---------------------------------------------------------------------------
+# Scan Response
+# ---------------------------------------------------------------------------
+
 class ScanResponse(BaseModel):
     """
     Response model for a successful scan.
 
-    Every field maps directly to the API contract defined in the
-    milestone spec. Using a Pydantic model (instead of returning
-    a raw dict) gives us automatic serialization, type safety,
-    and self-documenting Swagger schemas.
+    Every field maps directly to the API contract. Using a Pydantic model
+    (instead of returning a raw dict) gives us automatic serialization,
+    type safety, and self-documenting Swagger schemas.
+
+    New fields (warnings, scan_quality_score, readiness) have defaults so
+    existing API consumers are not broken by this change.
     """
 
     success: bool
@@ -33,3 +75,11 @@ class ScanResponse(BaseModel):
     load_time: float
     screenshot: str
     analysis: AnalysisResponse
+
+    # --- New fields from readiness engine refactor ---
+    # These provide visibility into scan quality and which readiness
+    # checks passed or timed out. Empty/default values maintain backward
+    # compatibility with existing clients.
+    warnings: list[str] = []
+    scan_quality_score: float = 1.0
+    readiness: Optional[ReadinessReportSchema] = None

@@ -17,6 +17,16 @@ It exists as a standalone component (not inside BrowserService) because:
 The engine runs a pipeline of targeted checks, each addressing a specific
 category of "the page isn't finished rendering yet." Each check is
 independently configurable and can be skipped entirely.
+
+Architecture (post-refactor):
+- Every check returns a CheckResult (not None).
+- The pipeline returns a ReadinessResult with all check outcomes, warnings,
+  and a weighted quality score.
+- All checks are NON-CRITICAL: timeouts produce warnings, not failures.
+  Critical failures (DNS, navigation, browser crash) are handled by
+  BrowserService before this engine runs.
+- A new scroll discovery phase triggers lazy-loaded content before the
+  final screenshot.
 """
 
 import logging
@@ -24,6 +34,14 @@ import time
 from dataclasses import dataclass, field
 
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
+
+from app.services.readiness_models import (
+    CheckCategory,
+    CheckCriticality,
+    CheckResult,
+    ReadinessResult,
+    compute_scan_quality_score,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +104,13 @@ class ReadinessConfig:
     # Individual checks will stop early if this budget is exhausted.
     max_wait_seconds: float = 30.0
 
+    # --- Navigation ---
+    # The Playwright wait_until strategy used during page.goto().
+    # "domcontentloaded" is the new default because "networkidle" can
+    # timeout on SPAs with continuous polling, WebSockets, or streaming.
+    # The readiness engine handles deeper checks after navigation.
+    navigation_wait_strategy: str = "domcontentloaded"
+
     # --- Fonts ---
     # Waits for document.fonts.ready (the FontFaceSet API).
     # Prevents FOIT (Flash of Invisible Text) and FOUT (Flash of Unstyled
@@ -135,6 +160,21 @@ class ReadinessConfig:
     layout_stability_checks: int = 3
     layout_stability_interval_ms: int = 300
 
+    # --- Scroll Discovery ---
+    # Scrolls the page gradually from top to bottom to trigger lazy-loaded
+    # content, intersection observers, infinite scroll sections, and
+    # deferred React components. After scrolling, returns to the top.
+    #
+    # Why this is a readiness step (not a BrowserService concern):
+    # Scroll discovery directly affects page content completeness, which
+    # is a readiness concern. The screenshot and analysis should reflect
+    # the FULL page, not just the first viewport.
+    enable_scroll_discovery: bool = True
+    scroll_step_pixels: int = 800
+    scroll_pause_ms: int = 400
+    max_scroll_iterations: int = 25
+    scroll_stability_checks: int = 2
+
     # --- Final delay ---
     # A short sleep after all checks pass. Safety net for CSS transitions,
     # fade-in animations, and final paint cycles.
@@ -151,13 +191,17 @@ class PageReadinessEngine:
 
     Usage:
         engine = PageReadinessEngine(page, config)
-        engine.wait_until_ready()
-        # page is now stable — safe to screenshot
+        result = engine.wait_until_ready()
+        # result.scan_quality_score tells you how confident the scan is
+        # result.warnings lists any checks that timed out
+        # result.has_critical_failure tells you if the scan should be aborted
 
     The pipeline runs each check in order. Each check respects the global
-    max_wait_seconds budget — if time runs out, remaining checks are skipped
-    and we proceed with what we have. This prevents a single misbehaving
-    page from hanging the scanner forever.
+    max_wait_seconds budget — if time runs out, remaining checks are
+    recorded as skipped and we proceed with what we have.
+
+    Every check returns a CheckResult. The pipeline aggregates all results
+    into a ReadinessResult with a weighted quality score.
     """
 
     def __init__(self, page: Page, config: ReadinessConfig | None = None) -> None:
@@ -165,61 +209,100 @@ class PageReadinessEngine:
         self._config = config or ReadinessConfig()
         self._start_time: float = 0.0
 
-    def wait_until_ready(self) -> None:
+    def wait_until_ready(self) -> ReadinessResult:
         """
         Run the full readiness pipeline.
 
         Each step is guarded by its config toggle and the global time budget.
         Steps run in a deliberate order — fonts and images first (they affect
         layout), then skeleton detection, then stability checks (which verify
-        everything has settled), then the final delay.
+        everything has settled), then scroll discovery, then the final delay.
+
+        Returns:
+            ReadinessResult with all check outcomes, quality score, and warnings.
         """
         self._start_time = time.time()
         logger.info("Page readiness pipeline started")
 
+        check_results: list[CheckResult] = []
+
         # Step 1: Fonts (affects text layout → must come before stability checks)
-        if self._config.wait_for_fonts and self._has_time_remaining():
-            self._wait_for_fonts()
+        if self._config.wait_for_fonts:
+            check_results.append(self._wait_for_fonts())
 
         # Step 2: Images (affects layout → must come before stability checks)
-        if self._config.wait_for_images and self._has_time_remaining():
-            self._wait_for_images()
+        if self._config.wait_for_images:
+            check_results.append(self._wait_for_images())
 
         # Step 3: Videos (must come before skeletons — skeleton→video transitions
         # are a primary source of black-frame screenshots; we want the video
         # buffer primed before we declare the skeleton gone)
-        if self._config.wait_for_videos and self._has_time_remaining():
-            self._wait_for_videos()
+        if self._config.wait_for_videos:
+            check_results.append(self._wait_for_videos())
 
         # Step 4: Skeleton/loading indicators (content swaps → must come
         # before stability checks, since skeleton→content transition changes
         # both DOM and layout)
-        if self._config.wait_for_skeletons and self._has_time_remaining():
-            self._wait_for_skeletons()
+        if self._config.wait_for_skeletons:
+            check_results.append(self._wait_for_skeletons())
 
         # Step 5: DOM stability (verify no more structural changes)
-        if self._has_time_remaining():
-            self._wait_for_dom_stability()
+        check_results.append(self._wait_for_dom_stability())
 
         # Step 6: Layout stability (verify no more height/position changes)
-        if self._has_time_remaining():
-            self._wait_for_layout_stability()
+        check_results.append(self._wait_for_layout_stability())
 
-        # Step 7: Final delay (safety net for animations and paint)
+        # Step 7: Scroll discovery (trigger lazy-loaded content)
+        if self._config.enable_scroll_discovery:
+            check_results.append(self._perform_scroll_discovery())
+
+        # Step 8: Final delay (safety net for animations and paint)
         if self._config.final_delay_seconds > 0:
             logger.debug(
                 f"Final stabilization delay: {self._config.final_delay_seconds}s"
             )
             time.sleep(self._config.final_delay_seconds)
 
-        elapsed = round(time.time() - self._start_time, 2)
-        logger.info(f"Page readiness pipeline completed in {elapsed}s")
+        # --- Build the result ---
+        checks_tuple = tuple(check_results)
+        total_elapsed = round(time.time() - self._start_time, 2)
+        quality_score = compute_scan_quality_score(checks_tuple)
+
+        # Collect warnings from failed checks
+        warnings = tuple(
+            check.message for check in checks_tuple if not check.passed
+        )
+
+        # Check for critical failures (in practice, all pipeline checks
+        # are non-critical — critical failures are caught before the engine
+        # runs — but the model supports it for future extensibility)
+        has_critical = any(
+            not check.passed and check.criticality == CheckCriticality.CRITICAL
+            for check in checks_tuple
+        )
+
+        result = ReadinessResult(
+            checks=checks_tuple,
+            total_elapsed_seconds=total_elapsed,
+            scan_quality_score=quality_score,
+            warnings=warnings,
+            has_critical_failure=has_critical,
+        )
+
+        logger.info(
+            f"Page readiness pipeline completed in {total_elapsed}s — "
+            f"quality={quality_score:.1%}, "
+            f"passed={len(result.completed_checks)}/{len(checks_tuple)}, "
+            f"warnings={len(warnings)}"
+        )
+
+        return result
 
     # -------------------------------------------------------------------
     # Individual readiness checks
     # -------------------------------------------------------------------
 
-    def _wait_for_fonts(self) -> None:
+    def _wait_for_fonts(self) -> CheckResult:
         """
         Wait for all web fonts to finish loading.
 
@@ -232,22 +315,53 @@ class PageReadinessEngine:
         or FOUT (fallback font with different metrics). Either one produces
         misleading screenshots.
         """
+        if not self._has_time_remaining():
+            return self._skipped_result(CheckCategory.FONTS)
+
         logger.debug("Waiting for web fonts...")
+        check_start = time.time()
+
         try:
             self._page.wait_for_function(
                 "() => document.fonts.ready",
-                timeout=self._config.fonts_timeout_ms,
+                timeout=self._effective_timeout(self._config.fonts_timeout_ms),
             )
+            elapsed_ms = self._elapsed_ms(check_start)
             logger.debug("Web fonts loaded")
+            return CheckResult(
+                name=CheckCategory.FONTS,
+                criticality=CheckCriticality.NON_CRITICAL,
+                passed=True,
+                elapsed_ms=elapsed_ms,
+                message="All web fonts loaded",
+            )
         except PlaywrightTimeout:
-            logger.warning(
-                f"Font loading timed out after {self._config.fonts_timeout_ms}ms "
+            elapsed_ms = self._elapsed_ms(check_start)
+            msg = (
+                f"Font loading timed out after {elapsed_ms:.0f}ms "
                 f"— proceeding without waiting further"
             )
+            logger.warning(msg)
+            return CheckResult(
+                name=CheckCategory.FONTS,
+                criticality=CheckCriticality.NON_CRITICAL,
+                passed=False,
+                elapsed_ms=elapsed_ms,
+                message=msg,
+            )
         except Exception as exc:
-            logger.warning(f"Font check failed: {exc} — proceeding")
+            elapsed_ms = self._elapsed_ms(check_start)
+            msg = f"Font check failed: {exc} — proceeding"
+            logger.warning(msg)
+            return CheckResult(
+                name=CheckCategory.FONTS,
+                criticality=CheckCriticality.NON_CRITICAL,
+                passed=False,
+                elapsed_ms=elapsed_ms,
+                message=msg,
+            )
 
-    def _wait_for_images(self) -> None:
+    def _wait_for_images(self) -> CheckResult:
         """
         Wait for all <img> elements to finish loading.
 
@@ -263,7 +377,11 @@ class PageReadinessEngine:
         getComputedStyle() on every element, which is expensive and
         rarely worth it for this use case.
         """
+        if not self._has_time_remaining():
+            return self._skipped_result(CheckCategory.IMAGES)
+
         logger.debug("Waiting for images to load...")
+        check_start = time.time()
         timeout_seconds = self._config.images_timeout_ms / 1000
         deadline = time.time() + timeout_seconds
 
@@ -280,20 +398,44 @@ class PageReadinessEngine:
             try:
                 all_loaded = self._page.evaluate(check_images_js)
                 if all_loaded:
+                    elapsed_ms = self._elapsed_ms(check_start)
                     logger.debug("All images loaded")
-                    return
+                    return CheckResult(
+                        name=CheckCategory.IMAGES,
+                        criticality=CheckCriticality.NON_CRITICAL,
+                        passed=True,
+                        elapsed_ms=elapsed_ms,
+                        message="All images loaded",
+                    )
             except Exception as exc:
-                logger.warning(f"Image check failed: {exc} — proceeding")
-                return
+                elapsed_ms = self._elapsed_ms(check_start)
+                msg = f"Image check failed: {exc} — proceeding"
+                logger.warning(msg)
+                return CheckResult(
+                    name=CheckCategory.IMAGES,
+                    criticality=CheckCriticality.NON_CRITICAL,
+                    passed=False,
+                    elapsed_ms=elapsed_ms,
+                    message=msg,
+                )
 
             time.sleep(0.3)
 
-        logger.warning(
-            f"Image loading timed out after {self._config.images_timeout_ms}ms "
+        elapsed_ms = self._elapsed_ms(check_start)
+        msg = (
+            f"Image loading timed out after {elapsed_ms:.0f}ms "
             f"— proceeding with potentially unloaded images"
         )
+        logger.warning(msg)
+        return CheckResult(
+            name=CheckCategory.IMAGES,
+            criticality=CheckCriticality.NON_CRITICAL,
+            passed=False,
+            elapsed_ms=elapsed_ms,
+            message=msg,
+        )
 
-    def _wait_for_videos(self) -> None:
+    def _wait_for_videos(self) -> CheckResult:
         """
         Wait for HTML5 <video> elements to have at least one decoded frame
         available for rendering.
@@ -326,7 +468,11 @@ class PageReadinessEngine:
         Cross-origin iframe-embedded players (YouTube, Vimeo) are inaccessible
         due to the browser same-origin policy and are silently ignored.
         """
-        logger.debug("Waiting for video elements to reach readyState \u2265 2...")
+        if not self._has_time_remaining():
+            return self._skipped_result(CheckCategory.VIDEOS)
+
+        logger.debug("Waiting for video elements to reach readyState ≥ 2...")
+        check_start = time.time()
         timeout_seconds = self._config.videos_timeout_ms / 1000
         deadline = time.time() + timeout_seconds
 
@@ -362,8 +508,16 @@ class PageReadinessEngine:
             try:
                 result = self._page.evaluate(check_videos_js)
             except Exception as exc:
-                logger.warning(f"Video readiness check failed: {exc} — proceeding")
-                return
+                elapsed_ms = self._elapsed_ms(check_start)
+                msg = f"Video readiness check failed: {exc} — proceeding"
+                logger.warning(msg)
+                return CheckResult(
+                    name=CheckCategory.VIDEOS,
+                    criticality=CheckCriticality.NON_CRITICAL,
+                    passed=False,
+                    elapsed_ms=elapsed_ms,
+                    message=msg,
+                )
 
             total: int = result["total"]
             relevant: int = result["relevant"]
@@ -371,15 +525,30 @@ class PageReadinessEngine:
             done: bool = result["done"]
 
             if total == 0:
+                elapsed_ms = self._elapsed_ms(check_start)
                 logger.debug("No <video> elements found — skipping video readiness check")
-                return
+                return CheckResult(
+                    name=CheckCategory.VIDEOS,
+                    criticality=CheckCriticality.NON_CRITICAL,
+                    passed=True,
+                    elapsed_ms=elapsed_ms,
+                    message="No video elements found",
+                )
 
             if done:
-                logger.debug(
+                elapsed_ms = self._elapsed_ms(check_start)
+                msg = (
                     f"Videos ready: {ready}/{relevant} relevant "
                     f"({total - relevant} excluded with preload=\"none\")"
                 )
-                return
+                logger.debug(msg)
+                return CheckResult(
+                    name=CheckCategory.VIDEOS,
+                    criticality=CheckCriticality.NON_CRITICAL,
+                    passed=True,
+                    elapsed_ms=elapsed_ms,
+                    message=msg,
+                )
 
             logger.debug(
                 f"Videos: {ready}/{relevant} ready "
@@ -396,12 +565,21 @@ class PageReadinessEngine:
         except Exception:
             ready_final, relevant_final = 0, 0
 
-        logger.warning(
-            f"Video readiness timed out after {self._config.videos_timeout_ms}ms "
+        elapsed_ms = self._elapsed_ms(check_start)
+        msg = (
+            f"Video readiness timed out after {elapsed_ms:.0f}ms "
             f"— {ready_final}/{relevant_final} relevant videos ready, proceeding"
         )
+        logger.warning(msg)
+        return CheckResult(
+            name=CheckCategory.VIDEOS,
+            criticality=CheckCriticality.NON_CRITICAL,
+            passed=False,
+            elapsed_ms=elapsed_ms,
+            message=msg,
+        )
 
-    def _wait_for_skeletons(self) -> None:
+    def _wait_for_skeletons(self) -> CheckResult:
         """
         Wait for common skeleton/loading indicators to disappear.
 
@@ -420,7 +598,11 @@ class PageReadinessEngine:
         screenshots in modern SPAs. The page looks "loaded" to network-
         based checks, but the user sees gray rectangles.
         """
+        if not self._has_time_remaining():
+            return self._skipped_result(CheckCategory.SKELETONS)
+
         logger.debug("Checking for skeleton/loading indicators...")
+        check_start = time.time()
         timeout_seconds = self._config.skeletons_timeout_ms / 1000
         deadline = time.time() + timeout_seconds
 
@@ -431,21 +613,45 @@ class PageReadinessEngine:
             try:
                 count = self._page.locator(combined_selector).count()
                 if count == 0:
+                    elapsed_ms = self._elapsed_ms(check_start)
                     logger.debug("No skeleton/loading indicators found")
-                    return
+                    return CheckResult(
+                        name=CheckCategory.SKELETONS,
+                        criticality=CheckCriticality.NON_CRITICAL,
+                        passed=True,
+                        elapsed_ms=elapsed_ms,
+                        message="No skeleton/loading indicators found",
+                    )
                 logger.debug(f"Found {count} skeleton/loading indicator(s), waiting...")
             except Exception as exc:
-                logger.warning(f"Skeleton check failed: {exc} — proceeding")
-                return
+                elapsed_ms = self._elapsed_ms(check_start)
+                msg = f"Skeleton check failed: {exc} — proceeding"
+                logger.warning(msg)
+                return CheckResult(
+                    name=CheckCategory.SKELETONS,
+                    criticality=CheckCriticality.NON_CRITICAL,
+                    passed=False,
+                    elapsed_ms=elapsed_ms,
+                    message=msg,
+                )
 
             time.sleep(0.5)
 
-        logger.warning(
+        elapsed_ms = self._elapsed_ms(check_start)
+        msg = (
             f"Skeleton indicators still present after "
-            f"{self._config.skeletons_timeout_ms}ms — proceeding anyway"
+            f"{elapsed_ms:.0f}ms — proceeding anyway"
+        )
+        logger.warning(msg)
+        return CheckResult(
+            name=CheckCategory.SKELETONS,
+            criticality=CheckCriticality.NON_CRITICAL,
+            passed=False,
+            elapsed_ms=elapsed_ms,
+            message=msg,
         )
 
-    def _wait_for_dom_stability(self) -> None:
+    def _wait_for_dom_stability(self) -> CheckResult:
         """
         Wait for the DOM node count to stabilize.
 
@@ -466,7 +672,11 @@ class PageReadinessEngine:
         changes — only structural additions/removals. This is fine for
         our use case (skeleton → real content swaps).
         """
+        if not self._has_time_remaining():
+            return self._skipped_result(CheckCategory.DOM_STABILITY)
+
         logger.debug("Checking DOM stability...")
+        check_start = time.time()
         required_checks = self._config.dom_stability_checks
         interval_seconds = self._config.dom_stability_interval_ms / 1000
 
@@ -479,8 +689,16 @@ class PageReadinessEngine:
                     "() => document.querySelectorAll('*').length"
                 )
             except Exception as exc:
-                logger.warning(f"DOM stability check failed: {exc} — proceeding")
-                return
+                elapsed_ms = self._elapsed_ms(check_start)
+                msg = f"DOM stability check failed: {exc} — proceeding"
+                logger.warning(msg)
+                return CheckResult(
+                    name=CheckCategory.DOM_STABILITY,
+                    criticality=CheckCriticality.NON_CRITICAL,
+                    passed=False,
+                    elapsed_ms=elapsed_ms,
+                    message=msg,
+                )
 
             if current_count == last_node_count:
                 stable_count += 1
@@ -491,15 +709,33 @@ class PageReadinessEngine:
             if stable_count < required_checks:
                 time.sleep(interval_seconds)
 
+        elapsed_ms = self._elapsed_ms(check_start)
+
         if stable_count >= required_checks:
-            logger.debug(
+            msg = (
                 f"DOM stable at {last_node_count} nodes "
                 f"({required_checks} consecutive checks)"
             )
+            logger.debug(msg)
+            return CheckResult(
+                name=CheckCategory.DOM_STABILITY,
+                criticality=CheckCriticality.NON_CRITICAL,
+                passed=True,
+                elapsed_ms=elapsed_ms,
+                message=msg,
+            )
         else:
-            logger.warning("DOM stability check timed out — proceeding")
+            msg = f"DOM stability check timed out after {elapsed_ms:.0f}ms — proceeding"
+            logger.warning(msg)
+            return CheckResult(
+                name=CheckCategory.DOM_STABILITY,
+                criticality=CheckCriticality.NON_CRITICAL,
+                passed=False,
+                elapsed_ms=elapsed_ms,
+                message=msg,
+            )
 
-    def _wait_for_layout_stability(self) -> None:
+    def _wait_for_layout_stability(self) -> CheckResult:
         """
         Wait for the document height to stabilize.
 
@@ -519,7 +755,11 @@ class PageReadinessEngine:
         Trade-off: Horizontal layout shifts won't be detected. In practice,
         vertical shifts dominate.
         """
+        if not self._has_time_remaining():
+            return self._skipped_result(CheckCategory.LAYOUT_STABILITY)
+
         logger.debug("Checking layout stability...")
+        check_start = time.time()
         required_checks = self._config.layout_stability_checks
         interval_seconds = self._config.layout_stability_interval_ms / 1000
 
@@ -532,8 +772,16 @@ class PageReadinessEngine:
                     "() => document.documentElement.scrollHeight"
                 )
             except Exception as exc:
-                logger.warning(f"Layout stability check failed: {exc} — proceeding")
-                return
+                elapsed_ms = self._elapsed_ms(check_start)
+                msg = f"Layout stability check failed: {exc} — proceeding"
+                logger.warning(msg)
+                return CheckResult(
+                    name=CheckCategory.LAYOUT_STABILITY,
+                    criticality=CheckCriticality.NON_CRITICAL,
+                    passed=False,
+                    elapsed_ms=elapsed_ms,
+                    message=msg,
+                )
 
             if current_height == last_height:
                 stable_count += 1
@@ -544,13 +792,213 @@ class PageReadinessEngine:
             if stable_count < required_checks:
                 time.sleep(interval_seconds)
 
+        elapsed_ms = self._elapsed_ms(check_start)
+
         if stable_count >= required_checks:
-            logger.debug(
+            msg = (
                 f"Layout stable at height={last_height}px "
                 f"({required_checks} consecutive checks)"
             )
+            logger.debug(msg)
+            return CheckResult(
+                name=CheckCategory.LAYOUT_STABILITY,
+                criticality=CheckCriticality.NON_CRITICAL,
+                passed=True,
+                elapsed_ms=elapsed_ms,
+                message=msg,
+            )
         else:
-            logger.warning("Layout stability check timed out — proceeding")
+            msg = f"Layout stability check timed out after {elapsed_ms:.0f}ms — proceeding"
+            logger.warning(msg)
+            return CheckResult(
+                name=CheckCategory.LAYOUT_STABILITY,
+                criticality=CheckCriticality.NON_CRITICAL,
+                passed=False,
+                elapsed_ms=elapsed_ms,
+                message=msg,
+            )
+
+    def _perform_scroll_discovery(self) -> CheckResult:
+        """
+        Scroll the page from top to bottom to trigger lazy-loaded content.
+
+        This step simulates what a real user would do: scroll down the page
+        and let content load as it comes into view. It triggers:
+        - Lazy-loaded images (loading="lazy")
+        - Infinite scroll sections
+        - Deferred React/Vue components
+        - IntersectionObserver-based content
+        - Dynamic marketing sections
+
+        Algorithm:
+        1. Record the initial page height.
+        2. Scroll down by scroll_step_pixels.
+        3. Pause for scroll_pause_ms to let content render.
+        4. Check if the page height grew (new content loaded).
+        5. Repeat until:
+           a. Page height stops growing for N consecutive scrolls, OR
+           b. max_scroll_iterations is reached, OR
+           c. Global time budget is exhausted.
+        6. Scroll back to the top.
+        7. Wait a short stabilization delay.
+
+        Why scroll back to top: The screenshot should show the page from
+        its natural starting point, not wherever scrolling stopped.
+
+        Why gradual scrolling (not one jump to bottom): Many lazy-loading
+        implementations only trigger when content enters the viewport
+        during scrolling. A single scrollTo(0, document.body.scrollHeight)
+        may not trigger IntersectionObserver callbacks for intermediate
+        sections.
+        """
+        if not self._has_time_remaining():
+            return self._skipped_result(CheckCategory.SCROLL_DISCOVERY)
+
+        logger.debug("Starting scroll discovery phase...")
+        check_start = time.time()
+
+        pause_seconds = self._config.scroll_pause_ms / 1000
+        stability_threshold = self._config.scroll_stability_checks
+        stable_count = 0
+        iterations = 0
+        content_grew = False
+
+        try:
+            initial_height = self._page.evaluate(
+                "() => document.documentElement.scrollHeight"
+            )
+        except Exception as exc:
+            elapsed_ms = self._elapsed_ms(check_start)
+            msg = f"Scroll discovery failed to read page height: {exc}"
+            logger.warning(msg)
+            return CheckResult(
+                name=CheckCategory.SCROLL_DISCOVERY,
+                criticality=CheckCriticality.NON_CRITICAL,
+                passed=False,
+                elapsed_ms=elapsed_ms,
+                message=msg,
+            )
+
+        last_height = initial_height
+
+        while (
+            iterations < self._config.max_scroll_iterations
+            and stable_count < stability_threshold
+            and self._has_time_remaining()
+        ):
+            iterations += 1
+
+            scroll_js = f"""
+            () => {{
+                const step = {self._config.scroll_step_pixels};
+                
+                // 1. Try normal window scroll
+                const oldY = window.scrollY;
+                window.scrollBy(0, step);
+                
+                if (window.scrollY > oldY) {{
+                    const max = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+                    return {{
+                        scrolled: true,
+                        isAtBottom: window.scrollY + window.innerHeight >= max - 10,
+                        height: max
+                    }};
+                }}
+                
+                // 2. Try custom scroll containers (e.g. overflow: auto/scroll wrappers)
+                const scrollable = Array.from(document.querySelectorAll('*')).find(el => {{
+                    if (el.scrollHeight > el.clientHeight) {{
+                        const style = window.getComputedStyle(el);
+                        return style.overflowY === 'auto' || style.overflowY === 'scroll';
+                    }}
+                    return false;
+                }});
+                
+                if (scrollable) {{
+                    const oldTop = scrollable.scrollTop;
+                    scrollable.scrollBy(0, step);
+                    return {{
+                        scrolled: scrollable.scrollTop > oldTop,
+                        isAtBottom: scrollable.scrollTop + scrollable.clientHeight >= scrollable.scrollHeight - 10,
+                        height: scrollable.scrollHeight
+                    }};
+                }}
+                
+                // 3. Nowhere to scroll
+                return {{
+                    scrolled: false,
+                    isAtBottom: true,
+                    height: document.documentElement.scrollHeight
+                }};
+            }}
+            """
+
+            try:
+                state = self._page.evaluate(scroll_js)
+            except Exception as exc:
+                logger.warning(f"Scroll action failed at iteration {iterations}: {exc}")
+                break
+
+            # Pause to let lazy content render
+            time.sleep(pause_seconds)
+
+            current_height = state["height"]
+
+            if current_height > last_height:
+                content_grew = True
+                stable_count = 0
+                logger.debug(
+                    f"Scroll iteration {iterations}: "
+                    f"height grew {last_height}px → {current_height}px"
+                )
+                last_height = current_height
+            elif state["isAtBottom"] or not state["scrolled"]:
+                # If we hit the bottom (or can't scroll), wait to see if new content loads
+                stable_count += 1
+                logger.debug(
+                    f"Scroll iteration {iterations}: reached bottom, "
+                    f"waiting for content (stable {stable_count}/{stability_threshold})"
+                )
+            else:
+                # We are scrolling down a tall page, haven't reached the bottom yet.
+                # Do not increment stable_count, keep going.
+                stable_count = 0
+
+        # Scroll back to top for the screenshot
+        try:
+            self._page.evaluate("() => window.scrollTo(0, 0)")
+            # Brief stabilization after returning to top
+            time.sleep(0.3)
+        except Exception as exc:
+            logger.warning(f"Failed to scroll back to top: {exc}")
+
+        elapsed_ms = self._elapsed_ms(check_start)
+        height_delta = last_height - initial_height
+
+        if content_grew:
+            msg = (
+                f"Scroll discovery completed: {iterations} iterations, "
+                f"page grew by {height_delta}px "
+                f"({initial_height}px → {last_height}px)"
+            )
+        else:
+            msg = (
+                f"Scroll discovery completed: {iterations} iterations, "
+                f"no new content detected (height={initial_height}px)"
+            )
+
+        logger.debug(msg)
+
+        # Scroll discovery "passes" if it completed without errors.
+        # Even if no new content was found, it means the page had nothing
+        # to lazy-load — that's a valid outcome, not a failure.
+        return CheckResult(
+            name=CheckCategory.SCROLL_DISCOVERY,
+            criticality=CheckCriticality.NON_CRITICAL,
+            passed=True,
+            elapsed_ms=elapsed_ms,
+            message=msg,
+        )
 
     # -------------------------------------------------------------------
     # Utilities
@@ -575,3 +1023,36 @@ class PageReadinessEngine:
             )
             return False
         return True
+
+    def _effective_timeout(self, check_timeout_ms: int) -> int:
+        """
+        Return the smaller of the check's own timeout and the remaining
+        global budget. This prevents a single check from exceeding the
+        overall scan time budget.
+
+        Args:
+            check_timeout_ms: The check's configured timeout in milliseconds.
+
+        Returns:
+            The effective timeout to use, in milliseconds.
+        """
+        elapsed = time.time() - self._start_time
+        remaining_ms = (self._config.max_wait_seconds - elapsed) * 1000
+        return max(1, int(min(check_timeout_ms, remaining_ms)))
+
+    def _elapsed_ms(self, check_start: float) -> float:
+        """Calculate milliseconds elapsed since a check started."""
+        return round((time.time() - check_start) * 1000, 1)
+
+    def _skipped_result(self, category: CheckCategory) -> CheckResult:
+        """
+        Create a CheckResult for a check that was skipped because the
+        global time budget was exhausted.
+        """
+        return CheckResult(
+            name=category,
+            criticality=CheckCriticality.NON_CRITICAL,
+            passed=False,
+            elapsed_ms=0.0,
+            message=f"Skipped — global time budget exhausted ({self._config.max_wait_seconds}s)",
+        )

@@ -6,6 +6,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout, Error as PlaywrightError
 
 from app.services.page_readiness import PageReadinessEngine, ReadinessConfig
+from app.services.readiness_models import ReadinessResult
 from app.services.analysis_service import AnalysisService, EventCollector, to_analysis_response
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,30 @@ class ScanError(Exception):
     """
 
     pass
+
+
+def _readiness_to_dict(result: ReadinessResult) -> dict:
+    """
+    Convert a ReadinessResult into a plain dict for the scan response.
+
+    This is a module-level helper (not a method on ReadinessResult) because
+    serialisation format is an API concern, not a domain concern. The
+    ReadinessResult dataclass stays independent of how it's presented.
+    """
+    def check_to_dict(check) -> dict:
+        return {
+            "name": check.name.value,
+            "passed": check.passed,
+            "elapsed_ms": check.elapsed_ms,
+            "message": check.message,
+        }
+
+    return {
+        "completed": [check_to_dict(c) for c in result.completed_checks],
+        "failed": [check_to_dict(c) for c in result.failed_checks],
+        "total_elapsed_seconds": result.total_elapsed_seconds,
+        "scan_quality_score": result.scan_quality_score,
+    }
 
 
 class BrowserService:
@@ -64,11 +89,14 @@ class BrowserService:
 
         This is the single public method of the service. It:
         1. Launches a headless Chromium browser
-        2. Navigates to the given URL
+        2. Navigates to the given URL (using the configured wait strategy)
         3. Runs the Page Readiness Engine to wait for the page to stabilize
-        4. Extracts the page title and final URL (after redirects)
-        5. Captures a full-page screenshot
-        6. Returns all collected data as a dictionary
+        4. Inspects the ReadinessResult — continues on non-critical failures,
+           aborts only on critical failures
+        5. Extracts the page title and final URL (after redirects)
+        6. Captures a full-page screenshot
+        7. Returns all collected data as a dictionary, including readiness
+           warnings and quality score
 
         Args:
             url: The URL to scan.
@@ -76,7 +104,8 @@ class BrowserService:
                               uses default ReadinessConfig values.
 
         Raises:
-            ScanError: If any browser or network error occurs.
+            ScanError: If any browser or network error occurs, or if the
+                       readiness engine reports a critical failure.
                        The original error is logged, and a clean
                        user-facing message is raised.
         """
@@ -98,21 +127,40 @@ class BrowserService:
                     event_collector = EventCollector(page)
 
                     # Navigate to the URL.
-                    # The wait_until strategy is the first layer of readiness:
-                    # - 'networkidle': wait for 0 network connections for 500ms
-                    #   (best for pages that load everything upfront)
-                    # - 'domcontentloaded': just wait for HTML to be parsed
-                    #   (faster, but the readiness engine handles the rest)
-                    wait_strategy = "networkidle"
+                    # The wait_until strategy is configurable:
+                    # - 'domcontentloaded' (new default): just wait for HTML to
+                    #   be parsed. Fast and reliable — the readiness engine
+                    #   handles all deeper checks.
+                    # - 'networkidle': wait for 0 network connections for 500ms.
+                    #   Can timeout on SPAs with continuous polling/WebSockets.
+                    wait_strategy = config.navigation_wait_strategy
                     response = page.goto(url, wait_until=wait_strategy, timeout=30000)
 
                     # Run the Page Readiness Engine.
                     # This is where the real waiting happens — fonts, images,
-                    # skeleton detection, DOM stability, layout stability.
-                    # BrowserService doesn't know HOW readiness is determined;
-                    # it just delegates and trusts the engine.
+                    # skeleton detection, DOM stability, layout stability,
+                    # and scroll discovery.
+                    #
+                    # The engine returns a structured ReadinessResult instead
+                    # of None. BrowserService inspects it to decide whether
+                    # to continue or abort.
                     readiness_engine = PageReadinessEngine(page, config)
-                    readiness_engine.wait_until_ready()
+                    readiness_result = readiness_engine.wait_until_ready()
+
+                    # Critical failure gate.
+                    # If the readiness engine reports a critical failure (e.g.,
+                    # page crashed during checks), abort the scan. In practice,
+                    # critical failures (DNS, navigation) are caught by the
+                    # try/except around goto(), so this is a safety net.
+                    if readiness_result.has_critical_failure:
+                        failed_names = ", ".join(
+                            c.name.value for c in readiness_result.failed_checks
+                            if c.criticality.value == "critical"
+                        )
+                        raise ScanError(
+                            f"Critical readiness check(s) failed for '{url}': "
+                            f"{failed_names}. Scan aborted."
+                        )
 
                     # Calculate load time AFTER readiness completes.
                     # From the user's perspective, the page isn't "loaded"
@@ -139,7 +187,8 @@ class BrowserService:
                     logger.info(
                         f"Scan completed for {url} — "
                         f"title='{title}', status={status_code}, "
-                        f"load_time={load_time}s"
+                        f"load_time={load_time}s, "
+                        f"quality={readiness_result.scan_quality_score:.1%}"
                     )
 
                     return {
@@ -150,6 +199,9 @@ class BrowserService:
                         "load_time": load_time,
                         "screenshot": screenshot_path,
                         "analysis": analysis_response,
+                        "warnings": list(readiness_result.warnings),
+                        "scan_quality_score": readiness_result.scan_quality_score,
+                        "readiness": _readiness_to_dict(readiness_result),
                     }
                 finally:
                     # Always close the browser, even if an error occurs.

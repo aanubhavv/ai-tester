@@ -24,7 +24,12 @@ def scan_website(request: ScanRequest):
     3. Return the result or a clean error
 
     Error handling strategy:
-    - ScanError (from BrowserService) → 422 with descriptive message
+    - ScanError (from BrowserService) → 502 with descriptive message.
+      502 (Bad Gateway) is semantically correct: the scanner acts as a
+      gateway to the target website, and the error occurred while trying
+      to reach or process the upstream page.
+      Previously this was 422 (Unprocessable Entity), which is reserved
+      for request validation errors (e.g., malformed URL in request body).
     - Everything else → Falls through to the global exception handler (500)
     """
     try:
@@ -36,6 +41,11 @@ def scan_website(request: ScanRequest):
             final_delay_seconds=settings.readiness_final_delay_seconds,
             wait_for_videos=settings.readiness_wait_for_videos,
             videos_timeout_ms=settings.readiness_videos_timeout_ms,
+            navigation_wait_strategy=settings.readiness_navigation_wait_strategy,
+            enable_scroll_discovery=settings.readiness_enable_scroll_discovery,
+            scroll_step_pixels=settings.readiness_scroll_step_pixels,
+            scroll_pause_ms=settings.readiness_scroll_pause_ms,
+            max_scroll_iterations=settings.readiness_max_scroll_iterations,
         )
 
         service = BrowserService(screenshots_dir=settings.screenshots_dir)
@@ -45,7 +55,7 @@ def scan_website(request: ScanRequest):
     except ScanError as exc:
         logger.warning(f"Scan failed for {request.url}: {exc}")
         return JSONResponse(
-            status_code=422,
+            status_code=502,
             content={
                 "success": False,
                 "detail": str(exc),
