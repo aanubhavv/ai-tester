@@ -256,6 +256,45 @@ class PageReadinessEngine:
         if self._config.enable_scroll_discovery:
             check_results.append(self._perform_scroll_discovery())
 
+        # Step 7a: Force-reveal animation-hidden content.
+        # This MUST run after scroll discovery (which triggers observers)
+        # but BEFORE the image re-check (which waits for images to load).
+        # It injects CSS to disable all animations/transitions and uses JS
+        # to force-reveal elements hidden via opacity/visibility/clip-path.
+        # Also triggers lazy images by converting loading="lazy" to eager.
+        if self._has_time_remaining():
+            check_results.append(self._force_reveal_content())
+
+        # Step 7b: Re-check images after scroll + content reveal.
+        # Scroll discovery triggers IntersectionObservers and content
+        # reveal converts lazy images to eager. We MUST wait for those
+        # images to finish downloading before the screenshot.
+        if self._config.enable_scroll_discovery:
+            if self._config.wait_for_images and self._has_time_remaining():
+                logger.debug("Re-checking images after scroll discovery...")
+                post_scroll_images = self._wait_for_images()
+                # Tag the result so it's distinguishable in the report
+                check_results.append(CheckResult(
+                    name=CheckCategory.IMAGES,
+                    criticality=post_scroll_images.criticality,
+                    passed=post_scroll_images.passed,
+                    elapsed_ms=post_scroll_images.elapsed_ms,
+                    message=f"[post-scroll] {post_scroll_images.message}",
+                ))
+
+            # Step 7c: Brief layout re-stabilization after new images load.
+            # Images popping in can cause layout shifts (CLS).
+            if self._has_time_remaining():
+                logger.debug("Re-checking layout stability after scroll discovery...")
+                post_scroll_layout = self._wait_for_layout_stability()
+                check_results.append(CheckResult(
+                    name=CheckCategory.LAYOUT_STABILITY,
+                    criticality=post_scroll_layout.criticality,
+                    passed=post_scroll_layout.passed,
+                    elapsed_ms=post_scroll_layout.elapsed_ms,
+                    message=f"[post-scroll] {post_scroll_layout.message}",
+                ))
+
         # Step 8: Final delay (safety net for animations and paint)
         if self._config.final_delay_seconds > 0:
             logger.debug(
@@ -967,8 +1006,10 @@ class PageReadinessEngine:
         # Scroll back to top for the screenshot
         try:
             self._page.evaluate("() => window.scrollTo(0, 0)")
-            # Brief stabilization after returning to top
-            time.sleep(0.3)
+            # Give IntersectionObservers time to fire callbacks and start
+            # fetching lazy images. 1s is generous but necessary — many
+            # sites debounce observer callbacks by 100-300ms.
+            time.sleep(1.0)
         except Exception as exc:
             logger.warning(f"Failed to scroll back to top: {exc}")
 
@@ -1056,3 +1097,231 @@ class PageReadinessEngine:
             elapsed_ms=0.0,
             message=f"Skipped — global time budget exhausted ({self._config.max_wait_seconds}s)",
         )
+
+    def _force_reveal_content(self) -> CheckResult:
+        """
+        Force-reveal animation-hidden content and trigger lazy image loading.
+
+        Many modern websites hide elements with CSS animations triggered by
+        IntersectionObserver (e.g., opacity: 0 → opacity: 1 with a class
+        like 'in-view', 'aos-animate', 'is-visible'). Taking a full-page
+        screenshot captures these elements as invisible because the observer
+        may not have fired for off-screen content, or the animation hasn't
+        completed.
+
+        This method uses the same technique as professional screenshot tools
+        (Percy, Chromatic, BackstopJS):
+
+        1. Inject CSS that zeroes out all animation/transition durations,
+           making any pending animations resolve instantly.
+        2. Use JavaScript to find elements with opacity near 0 or
+           visibility:hidden in the normal document flow and force them
+           to be visible.
+        3. Convert all loading="lazy" images to eager and trigger src
+           from data-src attributes (common lazy-loading pattern).
+        4. Wait briefly for the browser to repaint.
+
+        This runs AFTER scroll discovery, so IntersectionObservers have
+        already had a chance to fire. This step is the safety net that
+        catches anything the scroll missed.
+        """
+        if not self._has_time_remaining():
+            return self._skipped_result(CheckCategory.CONTENT_REVEAL)
+
+        logger.debug("Force-revealing animation-hidden content...")
+        check_start = time.time()
+
+        # ------------------------------------------------------------------
+        # Phase 1: Inject CSS to disable animations and transitions.
+        # This makes any pending fade-in / slide-up animations resolve
+        # instantly. It also prevents new animations from running during
+        # the screenshot capture.
+        # ------------------------------------------------------------------
+        disable_animations_js = """
+        () => {
+            const styleId = '__qaforge_reveal__';
+            if (document.getElementById(styleId)) return 'already_injected';
+
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = `
+                *, *::before, *::after {
+                    animation-delay: 0s !important;
+                    animation-duration: 0s !important;
+                    animation-fill-mode: forwards !important;
+                    transition-delay: 0s !important;
+                    transition-duration: 0s !important;
+                }
+            `;
+            document.head.appendChild(style);
+            return 'injected';
+        }
+        """
+
+        # ------------------------------------------------------------------
+        # Phase 2: Force-reveal hidden elements and trigger lazy images.
+        #
+        # This JS does three things:
+        # a) Finds elements with opacity < 0.1 that are in the normal
+        #    document flow (not fixed/absolute overlays like modals) and
+        #    forces their opacity to 1.
+        # b) Adds common "animated" / "visible" class names that many
+        #    CSS frameworks check (AOS, GSAP ScrollTrigger, Framer Motion).
+        # c) Converts loading="lazy" images to eager and copies data-src
+        #    to src for JS-based lazy loaders.
+        # ------------------------------------------------------------------
+        reveal_content_js = """
+        () => {
+            let revealed = 0;
+            let lazyFixed = 0;
+
+            // --- Reveal opacity-hidden elements ---
+            const allElements = document.querySelectorAll('*');
+            for (const el of allElements) {
+                const style = window.getComputedStyle(el);
+
+                // Skip fixed/absolute positioned elements (likely modals,
+                // overlays, dropdowns — we don't want to reveal those)
+                const pos = style.position;
+                if (pos === 'fixed' || pos === 'absolute') continue;
+
+                // Skip elements that are intentionally display:none
+                if (style.display === 'none') continue;
+
+                // Force-reveal elements with very low opacity
+                const opacity = parseFloat(style.opacity);
+                if (opacity < 0.1) {
+                    el.style.setProperty('opacity', '1', 'important');
+                    el.style.setProperty('visibility', 'visible', 'important');
+                    revealed++;
+                }
+
+                // Force-reveal elements hidden via visibility
+                if (style.visibility === 'hidden') {
+                    el.style.setProperty('visibility', 'visible', 'important');
+                    revealed++;
+                }
+
+                // Force-reveal elements hidden via clip-path
+                if (style.clipPath && style.clipPath !== 'none') {
+                    el.style.setProperty('clip-path', 'none', 'important');
+                    revealed++;
+                }
+            }
+
+            // --- Add common "visible" class names ---
+            // Many animation libraries (AOS, GSAP, Framer) toggle these
+            // classes to trigger CSS animations. Adding them makes the
+            // "animated" state resolve.
+            const revealClasses = [
+                'aos-animate', 'is-visible', 'in-view', 'visible',
+                'animated', 'show', 'active', 'revealed', 'loaded',
+                'fade-in', 'appear'
+            ];
+            const animatedEls = document.querySelectorAll(
+                '[data-aos], [data-scroll], [data-animate], ' +
+                '.animate-on-scroll, .scroll-animate, .lazy-animate, ' +
+                '.reveal, .fade-up, .fade-in, .slide-up, .slide-in'
+            );
+            for (const el of animatedEls) {
+                for (const cls of revealClasses) {
+                    el.classList.add(cls);
+                }
+                el.style.setProperty('opacity', '1', 'important');
+                el.style.setProperty('transform', 'none', 'important');
+                el.style.setProperty('visibility', 'visible', 'important');
+                revealed++;
+            }
+
+            // --- Trigger lazy images ---
+            const lazyImages = document.querySelectorAll(
+                'img[loading="lazy"], img[data-src], img[data-lazy]'
+            );
+            for (const img of lazyImages) {
+                // Convert lazy to eager so browser fetches immediately
+                img.loading = 'eager';
+
+                // Copy data-src to src (common JS lazy-loader pattern)
+                const dataSrc = img.getAttribute('data-src') ||
+                                img.getAttribute('data-lazy') ||
+                                img.getAttribute('data-original');
+                if (dataSrc && !img.src) {
+                    img.src = dataSrc;
+                }
+
+                // Copy data-srcset to srcset
+                const dataSrcset = img.getAttribute('data-srcset');
+                if (dataSrcset && !img.srcset) {
+                    img.srcset = dataSrcset;
+                }
+
+                lazyFixed++;
+            }
+
+            // --- Trigger lazy background images ---
+            // Some sites use data-bg or data-background for lazy CSS backgrounds
+            const lazyBgs = document.querySelectorAll(
+                '[data-bg], [data-background], [data-background-image]'
+            );
+            for (const el of lazyBgs) {
+                const bg = el.getAttribute('data-bg') ||
+                           el.getAttribute('data-background') ||
+                           el.getAttribute('data-background-image');
+                if (bg) {
+                    el.style.backgroundImage = `url('${bg}')`;
+                    lazyFixed++;
+                }
+            }
+
+            return { revealed, lazyFixed };
+        }
+        """
+
+        try:
+            # Phase 1: Disable animations
+            inject_result = self._page.evaluate(disable_animations_js)
+            logger.debug(f"Animation disabling CSS: {inject_result}")
+
+            # Phase 2: Force-reveal content and trigger lazy images
+            reveal_result = self._page.evaluate(reveal_content_js)
+            revealed = reveal_result.get("revealed", 0)
+            lazy_fixed = reveal_result.get("lazyFixed", 0)
+
+            logger.debug(
+                f"Content reveal: {revealed} elements force-revealed, "
+                f"{lazy_fixed} lazy images triggered"
+            )
+
+            # Phase 3: Wait for the browser to repaint and for newly-triggered
+            # lazy images to start loading. 1.5s is enough for the browser to:
+            # - Process the style changes
+            # - Start fetching newly-unblocked images
+            # - Complete the first repaint cycle
+            time.sleep(1.5)
+
+            elapsed_ms = self._elapsed_ms(check_start)
+            msg = (
+                f"Content reveal completed: {revealed} elements revealed, "
+                f"{lazy_fixed} lazy images triggered"
+            )
+            logger.info(msg)
+
+            return CheckResult(
+                name=CheckCategory.CONTENT_REVEAL,
+                criticality=CheckCriticality.NON_CRITICAL,
+                passed=True,
+                elapsed_ms=elapsed_ms,
+                message=msg,
+            )
+
+        except Exception as exc:
+            elapsed_ms = self._elapsed_ms(check_start)
+            msg = f"Content reveal failed: {exc} — proceeding"
+            logger.warning(msg)
+            return CheckResult(
+                name=CheckCategory.CONTENT_REVEAL,
+                criticality=CheckCriticality.NON_CRITICAL,
+                passed=False,
+                elapsed_ms=elapsed_ms,
+                message=msg,
+            )

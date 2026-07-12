@@ -46,6 +46,7 @@ class CheckCategory(str, Enum):
     DOM_STABILITY = "dom_stability"
     LAYOUT_STABILITY = "layout_stability"
     SCROLL_DISCOVERY = "scroll_discovery"
+    CONTENT_REVEAL = "content_reveal"
 
 
 class CheckCriticality(str, Enum):
@@ -127,6 +128,7 @@ CHECK_WEIGHTS: dict[CheckCategory, float] = {
     CheckCategory.DOM_STABILITY: 0.20,
     CheckCategory.LAYOUT_STABILITY: 0.20,
     CheckCategory.SCROLL_DISCOVERY: 0.10,
+    CheckCategory.CONTENT_REVEAL: 0.10,
 }
 
 
