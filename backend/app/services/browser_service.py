@@ -5,6 +5,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout, Error as PlaywrightError
 
+from app.schemas.scan import ScanOptions
 from app.services.page_readiness import PageReadinessEngine, ReadinessConfig
 from app.services.readiness_models import ReadinessResult
 from app.services.analysis_service import AnalysisService, EventCollector, to_analysis_response
@@ -83,12 +84,16 @@ class BrowserService:
         self._screenshots_dir = Path(screenshots_dir)
         self._screenshots_dir.mkdir(parents=True, exist_ok=True)
 
-    def scan_url(self, url: str, readiness_config: ReadinessConfig | None = None) -> dict:
+    def scan_url(
+        self,
+        options: ScanOptions,
+        readiness_config: ReadinessConfig | None = None,
+    ) -> dict:
         """
         Open a browser, navigate to the URL, and collect page information.
 
         This is the single public method of the service. It:
-        1. Launches a headless Chromium browser
+        1. Launches a Chromium browser (headless or headed per options)
         2. Navigates to the given URL (using the configured wait strategy)
         3. Runs the Page Readiness Engine to wait for the page to stabilize
         4. Inspects the ReadinessResult — continues on non-critical failures,
@@ -99,7 +104,8 @@ class BrowserService:
            warnings and quality score
 
         Args:
-            url: The URL to scan.
+            options: Per-request scan configuration (URL, headless, and
+                     future options like viewport, locale, proxy).
             readiness_config: Optional readiness configuration. If None,
                               uses default ReadinessConfig values.
 
@@ -110,12 +116,13 @@ class BrowserService:
                        user-facing message is raised.
         """
         config = readiness_config or ReadinessConfig()
-        logger.info(f"Starting scan for URL: {url}")
+        url = options.url
+        logger.info(f"Starting scan for URL: {url} (mode={options.browser_mode})")
         start_time = time.time()
 
         try:
             with sync_playwright() as playwright:
-                browser = playwright.chromium.launch(headless=True)
+                browser = playwright.chromium.launch(headless=options.headless)
 
                 try:
                     page = browser.new_page()
@@ -193,6 +200,7 @@ class BrowserService:
 
                     return {
                         "success": True,
+                        "browser_mode": options.browser_mode,
                         "title": title,
                         "final_url": final_url,
                         "status": status_code,

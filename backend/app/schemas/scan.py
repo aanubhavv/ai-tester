@@ -1,21 +1,44 @@
+from dataclasses import dataclass, field
 from typing import Optional
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from app.schemas.analysis import AnalysisResponse
 
 
-class ScanRequest(BaseModel):
-    """
-    Request model for the scan endpoint.
+# ---------------------------------------------------------------------------
+# Scan Options (internal transport object)
+# ---------------------------------------------------------------------------
+# This is NOT a Pydantic model because it never touches JSON serialization.
+# It's an internal dataclass that the endpoint constructs from query params
+# and passes to BrowserService. Using a dataclass keeps it lightweight and
+# makes it clear this is not an API boundary type.
+#
+# Future-proof: when you need to add viewport, locale, proxy, user-agent,
+# cookies, etc., add them as fields here. BrowserService.scan_url() accepts
+# a single ScanOptions object, so its signature never changes.
 
-    Uses Pydantic's HttpUrl type to validate that the incoming URL
-    is well-formed (has a scheme like https://, a valid host, etc.)
-    before any browser logic runs. If the URL is malformed, FastAPI
-    automatically returns a 422 with a clear validation error —
-    we never even touch Playwright.
+@dataclass(frozen=True)
+class ScanOptions:
     """
+    Per-request scan configuration passed from the endpoint to BrowserService.
 
-    url: HttpUrl
+    Every scan option that can vary between requests lives here.
+    Environment-level defaults (readiness timeouts, scroll settings) stay in
+    config.py / ReadinessConfig — they don't change per request.
+
+    Attributes:
+        url:      The target URL to scan. Already validated by the endpoint.
+        headless: Whether to run the browser in headless mode.
+                  True (default) = invisible headless browser.
+                  False = visible headed browser window.
+    """
+    url: str
+    headless: bool = True
+
+    @property
+    def browser_mode(self) -> str:
+        """Human-readable label for the API response."""
+        return "headless" if self.headless else "headed"
 
 
 # ---------------------------------------------------------------------------
@@ -64,11 +87,12 @@ class ScanResponse(BaseModel):
     (instead of returning a raw dict) gives us automatic serialization,
     type safety, and self-documenting Swagger schemas.
 
-    New fields (warnings, scan_quality_score, readiness) have defaults so
-    existing API consumers are not broken by this change.
+    New fields (warnings, scan_quality_score, readiness, browser_mode)
+    have defaults so existing API consumers are not broken by this change.
     """
 
     success: bool
+    browser_mode: str = "headless"
     title: str
     final_url: str
     status: int
@@ -76,10 +100,8 @@ class ScanResponse(BaseModel):
     screenshot: str
     analysis: AnalysisResponse
 
-    # --- New fields from readiness engine refactor ---
-    # These provide visibility into scan quality and which readiness
-    # checks passed or timed out. Empty/default values maintain backward
-    # compatibility with existing clients.
+    # --- Fields from readiness engine refactor ---
     warnings: list[str] = []
     scan_quality_score: float = 1.0
     readiness: Optional[ReadinessReportSchema] = None
+
