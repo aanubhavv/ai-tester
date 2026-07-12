@@ -34,6 +34,8 @@ def scan_website(request: ScanRequest):
         readiness_config = ReadinessConfig(
             max_wait_seconds=settings.readiness_max_wait_seconds,
             final_delay_seconds=settings.readiness_final_delay_seconds,
+            wait_for_videos=settings.readiness_wait_for_videos,
+            videos_timeout_ms=settings.readiness_videos_timeout_ms,
         )
 
         service = BrowserService(screenshots_dir=settings.screenshots_dir)

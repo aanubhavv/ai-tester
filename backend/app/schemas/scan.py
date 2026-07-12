@@ -1,4 +1,5 @@
 from pydantic import BaseModel, HttpUrl
+from app.schemas.analysis import AnalysisResponse
 
 
 class ScanRequest(BaseModel):
@@ -31,3 +32,4 @@ class ScanResponse(BaseModel):
     status: int
     load_time: float
     screenshot: str
+    analysis: AnalysisResponse

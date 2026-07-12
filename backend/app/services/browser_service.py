@@ -6,6 +6,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout, Error as PlaywrightError
 
 from app.services.page_readiness import PageReadinessEngine, ReadinessConfig
+from app.services.analysis_service import AnalysisService, EventCollector, to_analysis_response
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,12 @@ class BrowserService:
                 try:
                     page = browser.new_page()
 
+                    # EventCollector MUST be created before goto().
+                    # It registers page.on("console") and page.on("requestfailed")
+                    # hooks immediately. Any events that fire before these hooks
+                    # are registered are lost permanently — there is no replay.
+                    event_collector = EventCollector(page)
+
                     # Navigate to the URL.
                     # The wait_until strategy is the first layer of readiness:
                     # - 'networkidle': wait for 0 network connections for 500ms
@@ -120,6 +127,15 @@ class BrowserService:
                     # Take screenshot
                     screenshot_path = self._take_screenshot(page)
 
+                    # Run the Analysis Engine.
+                    # Receives the stabilised page and the event_collector
+                    # that has been accumulating console/network events since
+                    # before goto(). Returns a strongly-typed AnalysisResult.
+                    analysis_result = AnalysisService(page, event_collector).run()
+                    # Convert the internal dataclass to the Pydantic response
+                    # model so ScanResponse(**result) works at the endpoint.
+                    analysis_response = to_analysis_response(analysis_result)
+
                     logger.info(
                         f"Scan completed for {url} — "
                         f"title='{title}', status={status_code}, "
@@ -133,6 +149,7 @@ class BrowserService:
                         "status": status_code,
                         "load_time": load_time,
                         "screenshot": screenshot_path,
+                        "analysis": analysis_response,
                     }
                 finally:
                     # Always close the browser, even if an error occurs.
