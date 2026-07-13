@@ -8,8 +8,9 @@ for all scan-related persistence.
 This service owns the entire artifact directory tree:
 
     artifacts/
-        scan_<id>/
-            report.json            ← master report (canonical scan record)
+        scans/
+            scan_<id>/
+                report.json            ← master report (canonical scan record)
             analysis/
                 metadata.json      ← individual analysis modules
                 readiness.json
@@ -75,7 +76,7 @@ class ArtifactService:
 
     def _scan_dir(self, scan_id: str) -> Path:
         """Root directory for a single scan's artifacts."""
-        return self._root / scan_id
+        return self._root / "scans" / scan_id
 
     def _analysis_dir(self, scan_id: str) -> Path:
         return self._scan_dir(scan_id) / "analysis"
@@ -99,10 +100,10 @@ class ArtifactService:
         Create the full directory tree for a scan.
 
         Creates:
-            artifacts/<scan_id>/
-            artifacts/<scan_id>/analysis/
-            artifacts/<scan_id>/media/
-            artifacts/<scan_id>/logs/
+            artifacts/scans/<scan_id>/
+            artifacts/scans/<scan_id>/analysis/
+            artifacts/scans/<scan_id>/media/
+            artifacts/scans/<scan_id>/logs/
 
         Returns:
             Path to the scan's root directory.
@@ -325,10 +326,11 @@ class ArtifactService:
         """
         scans: list[dict[str, Any]] = []
 
-        if not self._root.exists():
+        scans_dir = self._root / "scans"
+        if not scans_dir.exists():
             return scans
 
-        for scan_dir in sorted(self._root.iterdir(), reverse=True):
+        for scan_dir in sorted(scans_dir.iterdir(), reverse=True):
             if not scan_dir.is_dir():
                 continue
 
