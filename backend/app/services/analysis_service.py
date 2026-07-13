@@ -260,6 +260,22 @@ class DomResult:
 
 
 @dataclass(frozen=True)
+class ElementLayout:
+    tag: str
+    id: Optional[str]
+    classes: list[str]
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
+class LayoutResult:
+    elements: list[ElementLayout]
+
+
+@dataclass(frozen=True)
 class AnalysisResult:
     """
     The complete page analysis result.
@@ -279,6 +295,7 @@ class AnalysisResult:
     console_errors: list[ConsoleEvent]
     console_warnings: list[ConsoleEvent]
     network_failures: list[NetworkFailureEvent]
+    layout: LayoutResult
 
 
 # ---------------------------------------------------------------------------
@@ -330,6 +347,7 @@ class AnalysisService:
             console_errors=self._collector.console_errors if self._collector else [],
             console_warnings=self._collector.console_warnings if self._collector else [],
             network_failures=self._collector.network_failures if self._collector else [],
+            layout=self._analyse_layout(),
         )
 
         elapsed = round(time.time() - start, 3)
@@ -796,6 +814,53 @@ class AnalysisService:
                 buttons=0, tables=0, lists=0, paragraphs=0,
             )
 
+    # -------------------------------------------------------------------
+    # 9. Layout Mapping
+    # -------------------------------------------------------------------
+
+    def _analyse_layout(self) -> LayoutResult:
+        """
+        Extract the bounding boxes of major elements on the page.
+
+        We collect bounding boxes for elements that have an ID or class,
+        as these are the elements most likely to be targeted by 
+        `ignored_selectors` in a visual comparison.
+
+        Filtering by width/height > 0 ensures we don't store hidden elements.
+        """
+        logger.debug("Collecting layout mapping...")
+        try:
+            raw = self._page.evaluate("""
+            () => {
+                const elements = document.querySelectorAll('*');
+                const layout = [];
+                for (const el of elements) {
+                    if (!el.id && el.classList.length === 0) continue;
+                    
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width === 0 || rect.height === 0) continue;
+
+                    layout.push({
+                        tag: el.tagName.toLowerCase(),
+                        id: el.id || null,
+                        classes: Array.from(el.classList),
+                        x: Math.round(rect.x),
+                        y: Math.round(rect.y),
+                        width: Math.round(rect.width),
+                        height: Math.round(rect.height)
+                    });
+                }
+                return { elements: layout };
+            }
+            """)
+            
+            elements = [ElementLayout(**el) for el in raw.get("elements", [])]
+            logger.debug(f"Layout mapping: {len(elements)} elements")
+            return LayoutResult(elements=elements)
+        except Exception as exc:
+            logger.warning(f"Layout analysis failed: {exc}")
+            return LayoutResult(elements=[])
+
 
 # ---------------------------------------------------------------------------
 # Converter: AnalysisResult → AnalysisResponse (Pydantic)
@@ -829,6 +894,8 @@ def to_analysis_response(result: AnalysisResult):
         ConsoleMessageSchema,
         NetworkSchema,
         NetworkFailureSchema,
+        LayoutSchema,
+        ElementLayoutSchema,
     )
 
     return AnalysisResponse(
@@ -863,6 +930,20 @@ def to_analysis_response(result: AnalysisResult):
                     timestamp=f.timestamp,
                 )
                 for f in result.network_failures
+            ]
+        ),
+        layout=LayoutSchema(
+            elements=[
+                ElementLayoutSchema(
+                    tag=el.tag,
+                    id=el.id,
+                    classes=el.classes,
+                    x=el.x,
+                    y=el.y,
+                    width=el.width,
+                    height=el.height,
+                )
+                for el in result.layout.elements
             ]
         ),
     )

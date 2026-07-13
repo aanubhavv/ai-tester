@@ -243,6 +243,30 @@ class NetworkSchema(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# 11. DOM Layout Mapping
+# ---------------------------------------------------------------------------
+
+class ElementLayoutSchema(BaseModel):
+    """
+    Bounding box for a single addressable element on the page.
+    """
+    tag: str
+    id: Optional[str]
+    classes: list[str]
+    x: int
+    y: int
+    width: int
+    height: int
+
+class LayoutSchema(BaseModel):
+    """
+    Collection of bounding boxes for all major elements on the page.
+    Used for masking dynamic regions during visual regression comparisons.
+    """
+    elements: list[ElementLayoutSchema]
+
+
+# ---------------------------------------------------------------------------
 # Root Analysis Response
 # ---------------------------------------------------------------------------
 
@@ -268,3 +292,4 @@ class AnalysisResponse(BaseModel):
     dom: DomSchema
     console: ConsoleSchema
     network: NetworkSchema
+    layout: LayoutSchema

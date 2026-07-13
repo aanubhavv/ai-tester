@@ -23,6 +23,10 @@ This service owns the entire artifact directory tree:
                 screenshot.png     ← full-page screenshot
             logs/
                 scan.log           ← lifecycle log (JSON lines)
+        comparisons/
+            comp_<id>/
+                report.json        ← structured regression report
+                diff.png           ← composite diff image
 
 Design principles:
     - NO other service or endpoint performs filesystem I/O for scan data.
@@ -82,6 +86,10 @@ class ArtifactService:
     def _logs_dir(self, scan_id: str) -> Path:
         return self._scan_dir(scan_id) / "logs"
 
+    def _comparison_dir(self, comparison_id: str) -> Path:
+        """Root directory for a single visual comparison."""
+        return self._root / "comparisons" / comparison_id
+
     # ------------------------------------------------------------------
     # Directory creation
     # ------------------------------------------------------------------
@@ -112,6 +120,17 @@ class ArtifactService:
 
         logger.info(f"Created artifact directory: {scan_dir}")
         return scan_dir
+
+    def create_comparison_directory(self, comparison_id: str) -> Path:
+        """
+        Create the directory for a visual comparison.
+
+        Creates: artifacts/comparisons/<comparison_id>/
+        """
+        comp_dir = self._comparison_dir(comparison_id)
+        comp_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Created comparison directory: {comp_dir}")
+        return comp_dir
 
     # ------------------------------------------------------------------
     # Write operations
@@ -228,6 +247,20 @@ class ArtifactService:
         self._write_json(log_path, log_entries)
         logger.info(f"Saved scan log: {log_path} ({len(log_entries)} entries)")
         return log_path
+
+    def save_diff_image(self, comparison_id: str, diff_bytes: bytes) -> Path:
+        """Save a generated diff image to the comparison directory."""
+        diff_path = self._comparison_dir(comparison_id) / "diff.png"
+        diff_path.write_bytes(diff_bytes)
+        logger.info(f"Saved diff image: {diff_path}")
+        return diff_path
+
+    def save_comparison_report(self, comparison_id: str, report: dict[str, Any]) -> Path:
+        """Save the master report for a visual comparison."""
+        report_path = self._comparison_dir(comparison_id) / "report.json"
+        self._write_json(report_path, report)
+        logger.info(f"Saved comparison report: {report_path}")
+        return report_path
 
     # ------------------------------------------------------------------
     # Read operations
