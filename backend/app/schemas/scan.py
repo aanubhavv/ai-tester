@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from pydantic import BaseModel
@@ -87,17 +87,20 @@ class ScanResponse(BaseModel):
     (instead of returning a raw dict) gives us automatic serialization,
     type safety, and self-documenting Swagger schemas.
 
-    New fields (warnings, scan_quality_score, readiness, browser_mode)
-    have defaults so existing API consumers are not broken by this change.
+    Changes in Milestone 5:
+    - Added scan_id: primary identifier for the scan artifact bundle.
+    - Changed screenshot to screenshot_url: now points to
+      GET /api/v1/scans/{scan_id}/screenshot instead of a filesystem path.
     """
 
+    scan_id: str
     success: bool
     browser_mode: str = "headless"
     title: str
     final_url: str
     status: int
     load_time: float
-    screenshot: str
+    screenshot_url: str
     analysis: AnalysisResponse
 
     # --- Fields from readiness engine refactor ---

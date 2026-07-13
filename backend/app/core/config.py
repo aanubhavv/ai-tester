@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     api_prefix: str = "/api/v1"
     debug: bool = False
-    screenshots_dir: str = "app/screenshots"
+    artifacts_dir: str = "artifacts"
 
     # --- Readiness Engine Settings ---
     # These map directly to ReadinessConfig fields and can be overridden

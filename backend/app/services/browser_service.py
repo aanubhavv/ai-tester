@@ -1,9 +1,12 @@
 import logging
 import time
-from datetime import datetime
-from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout, Error as PlaywrightError
+
+# Grab version at module level — inside scan_url(), the `playwright` name
+# is shadowed by `with sync_playwright() as playwright:`.
+import importlib.metadata
+_PLAYWRIGHT_VERSION = importlib.metadata.version("playwright")
 
 from app.schemas.scan import ScanOptions
 from app.services.page_readiness import PageReadinessEngine, ReadinessConfig
@@ -72,17 +75,10 @@ class BrowserService:
       This is intentional — no long-lived browser processes to manage,
       no state leaking between requests. We can optimize later if
       performance becomes a concern.
+    - As of Milestone 5, screenshot persistence is handled by
+      ArtifactService. BrowserService returns raw screenshot bytes
+      instead of saving to disk.
     """
-
-    def __init__(self, screenshots_dir: str = "app/screenshots") -> None:
-        """
-        Initialize the service with a screenshot storage directory.
-
-        Creates the directory if it doesn't exist. Using pathlib.Path
-        for cross-platform path handling.
-        """
-        self._screenshots_dir = Path(screenshots_dir)
-        self._screenshots_dir.mkdir(parents=True, exist_ok=True)
 
     def scan_url(
         self,
@@ -179,8 +175,13 @@ class BrowserService:
                     final_url = page.url
                     status_code = self._get_status_code(response)
 
-                    # Take screenshot
-                    screenshot_path = self._take_screenshot(page)
+                    # Capture screenshot as raw bytes.
+                    # ArtifactService handles persistence — BrowserService
+                    # only captures the bytes in memory.
+                    screenshot_bytes = self._capture_screenshot(page)
+
+                    # Capture browser version for the report.
+                    browser_version = self._get_browser_version(browser)
 
                     # Run the Analysis Engine.
                     # Receives the stabilised page and the event_collector
@@ -205,11 +206,13 @@ class BrowserService:
                         "final_url": final_url,
                         "status": status_code,
                         "load_time": load_time,
-                        "screenshot": screenshot_path,
+                        "screenshot_bytes": screenshot_bytes,
                         "analysis": analysis_response,
                         "warnings": list(readiness_result.warnings),
                         "scan_quality_score": readiness_result.scan_quality_score,
                         "readiness": _readiness_to_dict(readiness_result),
+                        "browser_version": browser_version,
+                        "playwright_version": _PLAYWRIGHT_VERSION,
                     }
                 finally:
                     # Always close the browser, even if an error occurs.
@@ -291,29 +294,26 @@ class BrowserService:
             return 0
         return response.status
 
-    def _take_screenshot(self, page) -> str:
+    def _capture_screenshot(self, page) -> bytes:
         """
-        Capture a full-page screenshot and return its relative path.
+        Capture a full-page screenshot and return raw PNG bytes.
 
-        The path is relative (e.g., 'screenshots/20260711_123456_789012.png')
-        so the API response doesn't leak server filesystem details.
+        Returns bytes instead of saving to disk. The caller (scan endpoint)
+        passes these bytes to ArtifactService for persistence. This keeps
+        BrowserService free of filesystem concerns.
         """
-        screenshot_path = self._generate_screenshot_path()
-        full_path = self._screenshots_dir / screenshot_path
+        screenshot_bytes = page.screenshot(full_page=True)
+        logger.info(f"Screenshot captured ({len(screenshot_bytes)} bytes)")
+        return screenshot_bytes
 
-        page.screenshot(path=str(full_path), full_page=True)
-        logger.info(f"Screenshot saved to {full_path}")
-
-        # Return relative path as 'screenshots/filename.png'
-        return f"screenshots/{screenshot_path}"
-
-    def _generate_screenshot_path(self) -> str:
+    def _get_browser_version(self, browser) -> str:
         """
-        Generate a unique filename using a timestamp with microseconds.
+        Extract the browser version string.
 
-        Format: YYYYMMDD_HHMMSS_ffffff.png
-        The microsecond precision makes collisions virtually impossible
-        for a synchronous single-request service.
+        Used by the report's VersionInfoSchema to record which Chromium
+        build produced this scan. Returns a fallback if unavailable.
         """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        return f"{timestamp}.png"
+        try:
+            return browser.version
+        except Exception:
+            return "unknown"

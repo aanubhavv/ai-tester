@@ -30,6 +30,7 @@ htmlcov/
 *.egg-info/
 .eggs/
 screenshots/
+artifacts/
 
 # Environment / Secrets
 .env
