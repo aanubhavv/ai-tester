@@ -12,20 +12,11 @@ router = APIRouter()
 
 @router.post("/compare", response_model=ComparisonResponse)
 def compare_scans(
-    baseline_scan_id: str = Query(..., description="The ID of the baseline scan artifact."),
-    current_scan_id: str = Query(..., description="The ID of the current scan artifact to compare against."),
-    threshold: float = Query(0.05, description="Threshold (0.0 to 1.0) for ignoring small pixel differences."),
-    ignored_selectors: list[str] | None = Query(None, description="List of CSS selectors to mask out before comparison.")
+    request: ComparisonRequest
 ):
     """
     Perform a visual regression comparison between two scan artifacts.
     """
-    request = ComparisonRequest(
-        baseline_scan_id=baseline_scan_id,
-        current_scan_id=current_scan_id,
-        threshold=threshold,
-        ignored_selectors=ignored_selectors or []
-    )
     
     artifact_service = ArtifactService(artifacts_dir=settings.artifacts_dir)
     comparison_service = ComparisonService(artifact_service=artifact_service)

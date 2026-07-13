@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
-from app.schemas.scan import ScanOptions, ScanResponse
+from app.schemas.scan import ScanOptions, ScanRequest, ScanResponse
 from app.schemas.report import ScanReportSchema, ScanInfoSchema, VersionInfoSchema
 from app.services.browser_service import BrowserService, ScanError
 from app.services.artifact_service import ArtifactService
@@ -100,32 +100,20 @@ def _build_report(
 @router.post("/scan", response_model=ScanResponse)
 def scan_website(
     request: Request,
-    url: str = Query(
-        ...,
-        description="The target URL to scan. Must include scheme (https://).",
-        examples=["https://example.com"],
-    ),
-    headed: bool = Query(
-        False,
-        description=(
-            "Browser display mode. "
-            "false (default) = headless (invisible). "
-            "true = headed (visible browser window)."
-        ),
-    ),
+    body: ScanRequest,
 ):
     """
     Scan a website, persist artifacts, and return scan results.
 
     This endpoint orchestrates the full scan lifecycle:
-    1. Validate the URL query parameter
+    1. Validate the URL parameter
     2. Generate a unique scan ID
-    3. Build a ScanOptions object from the query params
+    3. Build a ScanOptions object from the request body
     4. Delegate to BrowserService for all browser work
     5. Persist artifacts via ArtifactService (screenshot, analysis, report, log)
     6. Return the result with scan_id for future retrieval
 
-    Query Parameters:
+    Request Body:
     - **url**: The target URL to scan (required).
     - **headed**: Whether to show the browser window (optional, default false).
 
@@ -138,7 +126,7 @@ def scan_website(
     - Everything else → Falls through to the global exception handler (500)
     """
     # --- Validate URL ---
-    validation_error = _validate_url(url)
+    validation_error = _validate_url(body.url)
     if validation_error:
         return JSONResponse(
             status_code=422,
@@ -159,11 +147,11 @@ def scan_website(
     # Future params (viewport, locale, proxy, etc.) get added here
     # without changing the BrowserService signature.
     options = ScanOptions(
-        url=url,
-        headless=not headed,
+        url=body.url,
+        headless=not body.headed,
     )
 
-    scan_log.add(f"Scan started: {url}")
+    scan_log.add(f"Scan started: {body.url}")
     scan_log.add(f"Scan ID: {scan_id}")
     scan_log.add(f"Browser mode: {options.browser_mode}")
 
@@ -211,7 +199,7 @@ def scan_website(
         app_version = request.app.version
         report = _build_report(
             scan_id=scan_id,
-            url=url,
+            url=body.url,
             started_at=started_at,
             completed_at=completed_at,
             duration_seconds=duration_seconds,
@@ -248,7 +236,7 @@ def scan_website(
         )
 
     except ScanError as exc:
-        logger.warning(f"Scan failed for {url}: {exc}")
+        logger.warning(f"Scan failed for {body.url}: {exc}")
 
         # Persist what we can for failed scans — the log is valuable
         # for debugging why the scan failed.
@@ -258,7 +246,7 @@ def scan_website(
             failed_report = {
                 "scan_info": {
                     "scan_id": scan_id,
-                    "url": url,
+                    "url": body.url,
                     "started_at": started_at,
                     "completed_at": datetime.now().isoformat(),
                     "duration_seconds": 0,

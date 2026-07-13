@@ -24,12 +24,12 @@ def post_json(url, data=None):
 
 def run_test():
     print("Starting baseline scan (example.com)...")
-    r1 = post_json(f"{BASE_URL}/scan?url=https://example.com")
+    r1 = post_json(f"{BASE_URL}/scan", data={"url": "https://example.com"})
     baseline_id = r1["scan_id"]
     print(f"Baseline scan completed: {baseline_id}")
     
     print("Starting current scan (example.org)...")
-    r2 = post_json(f"{BASE_URL}/scan?url=https://example.org")
+    r2 = post_json(f"{BASE_URL}/scan", data={"url": "https://example.org"})
     current_id = r2["scan_id"]
     print(f"Current scan completed: {current_id}")
     
@@ -41,8 +41,7 @@ def run_test():
         "ignored_selectors": ["div"]
     }
     
-    query_string = urllib.parse.urlencode(params, doseq=True)
-    result = post_json(f"{BASE_URL}/compare?{query_string}")
+    result = post_json(f"{BASE_URL}/compare", data=params)
     
     print("Comparison successful!")
     print(f"Comparison ID: {result['comparison_id']}")

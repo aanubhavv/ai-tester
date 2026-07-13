@@ -6,6 +6,15 @@ from app.schemas.analysis import AnalysisResponse
 
 
 # ---------------------------------------------------------------------------
+# Scan Request
+# ---------------------------------------------------------------------------
+
+class ScanRequest(BaseModel):
+    url: str
+    headed: bool = False
+
+
+# ---------------------------------------------------------------------------
 # Scan Options (internal transport object)
 # ---------------------------------------------------------------------------
 # This is NOT a Pydantic model because it never touches JSON serialization.
