@@ -31,7 +31,7 @@ htmlcov/
 .eggs/
 screenshots/
 artifacts/
-projects/
+backend/projects/
 
 # Environment / Secrets
 .env
