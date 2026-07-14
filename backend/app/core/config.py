@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     debug: bool = False
     artifacts_dir: str = "artifacts"
+    gemini_api_key: str | None = None
+    openrouter_api_key: str | None = None
 
     # --- Readiness Engine Settings ---
     # These map directly to ReadinessConfig fields and can be overridden

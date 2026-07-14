@@ -2,16 +2,15 @@
 
 import Link from "next/link";
 import { ReactNode } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useParams } from "next/navigation";
 
 export default function ProjectLayout({
   children,
-  params,
 }: {
   children: ReactNode;
-  params: { project_id: string };
 }) {
-  const projectId = params.project_id;
+  const params = useParams();
+  const projectId = params.project_id as string;
   const pathname = usePathname();
 
   const generalTabs = [
@@ -28,6 +27,12 @@ export default function ProjectLayout({
     { name: "Risk Matrix", href: `/projects/${projectId}/planning/risks` },
     { name: "Testing Strategy", href: `/projects/${projectId}/planning/strategy` },
     { name: "Test Suites", href: `/projects/${projectId}/planning/suites` },
+  ];
+
+  const testCasesTabs = [
+    { name: "Drafts", href: `/projects/${projectId}/test-cases/drafts` },
+    { name: "Approved", href: `/projects/${projectId}/test-cases/approved` },
+    { name: "Coverage", href: `/projects/${projectId}/test-cases/coverage` },
   ];
 
   const handleGenerate = async () => {
@@ -94,6 +99,25 @@ export default function ProjectLayout({
             >
               Generate AI Plan
             </button>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-bold text-green-600 uppercase tracking-wider">Test Cases</div>
+            </div>
+            <div className="space-y-1">
+              {testCasesTabs.map((tab) => (
+                <Link
+                  key={tab.name}
+                  href={tab.href}
+                  className={`block px-3 py-2 rounded-md transition ${
+                    pathname.startsWith(tab.href) ? "bg-green-50 text-green-700 font-medium" : "text-gray-700 hover:bg-gray-100 hover:text-green-600"
+                  }`}
+                >
+                  {tab.name}
+                </Link>
+              ))}
+            </div>
           </div>
         </nav>
       </aside>
