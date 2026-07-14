@@ -35,7 +35,10 @@ def get_project(project_id: str) -> Any:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project {project_id} not found"
         )
-    return project
+    
+    project_dict = project.model_dump()
+    project_dict["project_context"] = project_service.get_project_context(project_id)
+    return project_dict
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
 def update_project(project_id: str, data: ProjectUpdate) -> Any:
@@ -48,7 +51,10 @@ def update_project(project_id: str, data: ProjectUpdate) -> Any:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project {project_id} not found"
         )
-    return project
+        
+    project_dict = project.model_dump()
+    project_dict["project_context"] = project_service.get_project_context(project_id)
+    return project_dict
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(project_id: str) -> None:

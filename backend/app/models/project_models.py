@@ -28,6 +28,5 @@ class ProjectModel(BaseModel):
     name: str
     description: str = ""
     primary_url: str = ""
-    project_context: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

@@ -24,7 +24,10 @@ def generate_test_cases(project_id: str, background_tasks: BackgroundTasks) -> A
     def background_generation():
         from app.services.project_service import project_service
         project = project_service.get_project(project_id)
-        project_context = project.project_context if project and project.project_context else "None provided."
+        
+        project_context = project_service.get_project_context(project_id)
+        if not project_context:
+            project_context = "None provided."
         
         # Add Knowledge Base documents to context
         from app.services.knowledge_service import knowledge_service

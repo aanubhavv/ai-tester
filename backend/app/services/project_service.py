@@ -31,11 +31,8 @@ class ProjectService:
         base_dir = self._get_project_dir(project_id)
         base_dir.mkdir(parents=True, exist_ok=True)
         (base_dir / "knowledge").mkdir(exist_ok=True)
+        (base_dir / "test_cases").mkdir(exist_ok=True)
         (base_dir / "executions").mkdir(exist_ok=True)
-        (base_dir / "reports").mkdir(exist_ok=True)
-        (base_dir / "uploads").mkdir(exist_ok=True)
-        (base_dir / "features").mkdir(exist_ok=True)
-        (base_dir / "flows").mkdir(exist_ok=True)
 
     def create_project(self, data: ProjectCreate) -> ProjectModel:
         """Create a new project."""
@@ -91,7 +88,11 @@ class ProjectService:
             return None
             
         update_data = data.model_dump(exclude_unset=True)
-        if not update_data:
+        if "project_context" in update_data:
+            context_val = update_data.pop("project_context")
+            self.set_project_context(project_id, context_val)
+
+        if not update_data and "project_context" not in data.model_dump(exclude_unset=True):
             return project
             
         for key, value in update_data.items():
@@ -104,6 +105,18 @@ class ProjectService:
             f.write(project.model_dump_json(indent=2))
             
         return project
+
+    def get_project_context(self, project_id: str) -> str:
+        context_file = self._get_project_dir(project_id) / "knowledge" / "project_context.md"
+        if context_file.exists():
+            with open(context_file, "r") as f:
+                return f.read()
+        return ""
+
+    def set_project_context(self, project_id: str, context: str):
+        context_file = self._get_project_dir(project_id) / "knowledge" / "project_context.md"
+        with open(context_file, "w") as f:
+            f.write(context)
 
     def delete_project(self, project_id: str) -> bool:
         """

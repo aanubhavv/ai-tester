@@ -18,7 +18,7 @@ class KnowledgeService:
         return PROJECTS_ROOT / project_id / "knowledge"
 
     def _get_uploads_dir(self, project_id: str) -> Path:
-        return PROJECTS_ROOT / project_id / "uploads"
+        return PROJECTS_ROOT / project_id / "knowledge" / "uploads"
 
     def upload_document(
         self, 
