@@ -1,4 +1,5 @@
 import { Settings, Trash2, Save } from "lucide-react";
+import ProjectSettingsForm from "./ProjectSettingsForm";
 
 async function getProject(projectId: string) {
   try {
@@ -28,45 +29,7 @@ export default async function SettingsPage(props: { params: Promise<{ project_id
 
       <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6 shadow-sm">
         <h3 className="text-lg font-medium text-zinc-200 mb-4">General Settings</h3>
-        
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1">Project Name</label>
-            <input 
-              type="text" 
-              defaultValue={project.name}
-              disabled
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-zinc-300 focus:outline-none opacity-70 cursor-not-allowed" 
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1">Primary URL</label>
-            <input 
-              type="text" 
-              defaultValue={project.primary_url || ""}
-              disabled
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-zinc-300 focus:outline-none opacity-70 cursor-not-allowed" 
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1">Description</label>
-            <textarea 
-              defaultValue={project.description || ""}
-              disabled
-              rows={3}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-zinc-300 focus:outline-none opacity-70 cursor-not-allowed" 
-            />
-          </div>
-          
-          <div className="pt-2 flex justify-end">
-            <button disabled className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-zinc-800 bg-zinc-800 text-zinc-400 opacity-50 cursor-not-allowed h-9 px-4 py-2">
-              <Save className="mr-2 h-4 w-4" />
-              Save Changes
-            </button>
-          </div>
-        </div>
+        <ProjectSettingsForm project={project} />
       </div>
 
       <div className="rounded-xl border border-red-900/30 bg-red-950/10 p-6 shadow-sm">

@@ -1,12 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Search, Loader2, Link as LinkIcon, Monitor, Image as ImageIcon, History, Maximize2, Minimize2, ChevronRight, ChevronDown, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import AnalysisViewer from "./AnalysisViewer";
 
 export default function ClientScans({ projectId }: { projectId: string }) {
-  const [url, setUrl] = useState("");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const autoScanUrl = searchParams.get("url");
+  const autoScanTriggered = searchParams.get("autoScan");
+  const hasAutoScanned = useRef(false);
+
+  const [url, setUrl] = useState(autoScanUrl || "");
   const [headed, setHeaded] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<any | null>(null);
@@ -17,8 +23,6 @@ export default function ClientScans({ projectId }: { projectId: string }) {
   const [history, setHistory] = useState<any[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [showHistory, setShowHistory] = useState(true);
-  
-  const router = useRouter();
 
   const fetchHistory = async () => {
     setIsLoadingHistory(true);
@@ -35,13 +39,8 @@ export default function ClientScans({ projectId }: { projectId: string }) {
     }
   };
 
-  useEffect(() => {
-    fetchHistory();
-  }, [projectId]);
-
-  const handleScan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!url) return;
+  const performScan = async (targetUrl: string) => {
+    if (!targetUrl) return;
     
     setIsScanning(true);
     setError(null);
@@ -53,7 +52,7 @@ export default function ClientScans({ projectId }: { projectId: string }) {
       const res = await fetch("http://127.0.0.1:8000/api/v1/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, headed, project_id: projectId }),
+        body: JSON.stringify({ url: targetUrl, headed, project_id: projectId }),
       });
       
       const data = await res.json();
@@ -69,6 +68,24 @@ export default function ClientScans({ projectId }: { projectId: string }) {
     } finally {
       setIsScanning(false);
     }
+  };
+
+  useEffect(() => {
+    fetchHistory();
+    
+    if (autoScanTriggered === "true" && autoScanUrl && !hasAutoScanned.current) {
+      hasAutoScanned.current = true;
+      performScan(autoScanUrl);
+      
+      // Clean up the URL to remove the autoScan parameter
+      const newUrl = `/projects/${projectId}/scans`;
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, [projectId, autoScanTriggered, autoScanUrl]);
+
+  const handleScan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    performScan(url);
   };
 
   const loadPastScan = async (execution: any) => {

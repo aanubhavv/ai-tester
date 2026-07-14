@@ -20,12 +20,27 @@ async function getExecutions(projectId: string) {
   }
 }
 
+async function getTestCases(projectId: string) {
+  try {
+    const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    return res.json();
+  } catch (error) {
+    return [];
+  }
+}
+
 export default async function ProjectOverview(props: { params: Promise<{ project_id: string }> }) {
   const params = await props.params;
   const project = await getProject(params.project_id);
   const { executions, total: totalExecutions } = await getExecutions(params.project_id);
+  const testCases = await getTestCases(params.project_id);
 
   if (!project) return null;
+
+  const scansCount = executions?.filter((e: any) => e.type === "scan").length || 0;
+  const comparisonsCount = executions?.filter((e: any) => e.type === "visual_comparison").length || 0;
+  const testCasesCount = testCases?.length || 0;
 
   return (
     <div className="flex flex-col max-w-6xl mx-auto space-y-8">
@@ -38,23 +53,23 @@ export default async function ProjectOverview(props: { params: Promise<{ project
         <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6 shadow-sm">
           <div className="flex items-center text-sm font-medium text-zinc-400 mb-2">
             <Activity className="mr-2 h-4 w-4 text-blue-500" />
-            Features
+            Scans
           </div>
-          <div className="text-3xl font-bold text-zinc-100">0</div>
+          <div className="text-3xl font-bold text-zinc-100">{scansCount}</div>
         </div>
         <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6 shadow-sm">
           <div className="flex items-center text-sm font-medium text-zinc-400 mb-2">
-            <GitPullRequest className="mr-2 h-4 w-4 text-emerald-500" />
-            User Flows
+            <GitCompare className="mr-2 h-4 w-4 text-emerald-500" />
+            Comparisons
           </div>
-          <div className="text-3xl font-bold text-zinc-100">0</div>
+          <div className="text-3xl font-bold text-zinc-100">{comparisonsCount}</div>
         </div>
         <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6 shadow-sm">
           <div className="flex items-center text-sm font-medium text-zinc-400 mb-2">
-            <Layers className="mr-2 h-4 w-4 text-purple-500" />
-            Test Suites
+            <CheckSquare className="mr-2 h-4 w-4 text-purple-500" />
+            Test Cases
           </div>
-          <div className="text-3xl font-bold text-zinc-100">0</div>
+          <div className="text-3xl font-bold text-zinc-100">{testCasesCount}</div>
         </div>
         <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6 shadow-sm">
           <div className="flex items-center text-sm font-medium text-zinc-400 mb-2">
@@ -76,14 +91,14 @@ export default async function ProjectOverview(props: { params: Promise<{ project
                 <div className="p-8 text-center text-zinc-500 text-sm">No executions found.</div>
               ) : (
                 executions.slice(0, 5).map((execution: any) => (
-                  <div key={execution.id} className="flex items-center justify-between p-6 hover:bg-zinc-900/50 transition-colors">
+                  <div key={execution.id || execution.execution_id} className="flex items-center justify-between p-6 hover:bg-zinc-900/50 transition-colors">
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium text-zinc-200">Execution {execution.id.split('-')[0]}</span>
+                      <span className="text-sm font-medium text-zinc-200">Execution {(execution.id || execution.execution_id || "").split('-')[0]}</span>
                       <span className="text-xs text-zinc-500 mt-1">{execution.status}</span>
                     </div>
                     <div className="text-xs text-zinc-400 flex items-center">
                       <Calendar className="mr-1 h-3 w-3" />
-                      {new Date(execution.created_at).toLocaleDateString()}
+                      {new Date(execution.created_at || execution.started_at).toLocaleDateString()}
                     </div>
                   </div>
                 ))
@@ -98,14 +113,20 @@ export default async function ProjectOverview(props: { params: Promise<{ project
             <div className="space-y-4">
               <div>
                 <span className="block text-xs font-medium text-zinc-500 mb-1">Project ID</span>
-                <span className="text-sm text-zinc-300 font-mono bg-zinc-900 px-2 py-1 rounded">{project.id}</span>
+                <span className="text-sm text-zinc-300 font-mono bg-zinc-900 px-2 py-1 rounded">
+                  {project.project_id || project.id || "Unknown ID"}
+                </span>
               </div>
               <div>
                 <span className="block text-xs font-medium text-zinc-500 mb-1">Primary URL</span>
-                <a href={project.primary_url} target="_blank" rel="noreferrer" className="text-sm text-blue-400 hover:underline flex items-center">
-                  {project.primary_url}
-                  <ExternalLink className="ml-1 h-3 w-3" />
-                </a>
+                {project.primary_url && project.primary_url.trim() !== "" ? (
+                  <a href={project.primary_url} target="_blank" rel="noreferrer" className="text-sm text-blue-400 hover:underline flex items-center">
+                    {project.primary_url}
+                    <ExternalLink className="ml-1 h-3 w-3" />
+                  </a>
+                ) : (
+                  <span className="text-sm text-zinc-500 italic">Not configured</span>
+                )}
               </div>
               <div>
                 <span className="block text-xs font-medium text-zinc-500 mb-1">Created At</span>

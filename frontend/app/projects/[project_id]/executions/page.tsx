@@ -25,12 +25,6 @@ export default async function ExecutionsTab(props: { params: Promise<{ project_i
           <h2 className="text-2xl font-bold text-zinc-100">Executions</h2>
           <p className="text-zinc-400 mt-1">History of test suites, scans, and pipeline runs.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Link href={`/projects/${params.project_id}/executions/new`} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-blue-600 text-white hover:bg-blue-700 h-10 px-4 py-2">
-            <Play className="mr-2 h-4 w-4" />
-            New Execution
-          </Link>
-        </div>
       </div>
 
       <ClientExecutionsTable projectId={params.project_id} initialExecutions={executions} />

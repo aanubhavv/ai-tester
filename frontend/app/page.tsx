@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Plus, Play, BrainCircuit, Activity, CheckCircle2, Clock } from "lucide-react";
+import QuickScanButton from "./QuickScanButton";
 
 async function getProjects() {
   try {
@@ -36,7 +37,7 @@ export default async function Dashboard() {
           <p className="text-zinc-400 mt-1">Welcome back. Here's what's happening across your projects.</p>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/projects/new" className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-blue-600 text-white hover:bg-blue-700 h-10 px-4 py-2">
+          <Link href="/projects?create=true" className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-blue-600 text-white hover:bg-blue-700 h-10 px-4 py-2">
             <Plus className="mr-2 h-4 w-4" />
             New Project
           </Link>
@@ -110,14 +111,11 @@ export default async function Dashboard() {
               <h2 className="text-lg font-semibold text-zinc-100">Quick Actions</h2>
             </div>
             <div className="p-4 space-y-2">
-              <Link href="/projects/new" className="flex items-center w-full p-3 text-sm font-medium text-zinc-300 rounded-lg hover:bg-zinc-900 transition-colors">
+              <Link href="/projects?create=true" className="flex items-center w-full p-3 text-sm font-medium text-zinc-300 rounded-lg hover:bg-zinc-900 transition-colors">
                 <Plus className="mr-3 h-4 w-4 text-blue-400" />
                 Create New Project
               </Link>
-              <Link href="/executions/new" className="flex items-center w-full p-3 text-sm font-medium text-zinc-300 rounded-lg hover:bg-zinc-900 transition-colors">
-                <Play className="mr-3 h-4 w-4 text-emerald-400" />
-                Run Website Scan
-              </Link>
+              <QuickScanButton />
               <Link href="/ai-planning" className="flex items-center w-full p-3 text-sm font-medium text-zinc-300 rounded-lg hover:bg-zinc-900 transition-colors">
                 <BrainCircuit className="mr-3 h-4 w-4 text-purple-400" />
                 Generate AI Planning

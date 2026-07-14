@@ -28,6 +28,7 @@ export default async function ProjectLayout(props: {
   }
 
   const tabs = [
+    { name: 'Overview', href: `/projects/${project.project_id}` },
     { name: 'Knowledge', href: `/projects/${project.project_id}/knowledge` },
     { name: 'Test Cases', href: `/projects/${project.project_id}/test-cases` },
     { name: 'Scans', href: `/projects/${project.project_id}/scans` },
