@@ -1,5 +1,6 @@
 import { FileText, FileImage, FileCode2, UploadCloud, File } from "lucide-react";
 import UploadDocumentModal from "@/components/modals/UploadDocumentModal";
+import ProjectContextInput from "./ProjectContextInput";
 
 import ClientKnowledgeTable from "./ClientKnowledgeTable";
 
@@ -14,9 +15,22 @@ async function getKnowledgeFiles(projectId: string) {
   }
 }
 
+async function getProjectDetails(projectId: string) {
+  try {
+    const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return res.json();
+  } catch (error) {
+    return null;
+  }
+}
+
 export default async function KnowledgeTab(props: { params: Promise<{ project_id: string }> }) {
   const params = await props.params;
-  const { files } = await getKnowledgeFiles(params.project_id);
+  const [project, { files }] = await Promise.all([
+    getProjectDetails(params.project_id),
+    getKnowledgeFiles(params.project_id)
+  ]);
 
   const getIcon = (type: string) => {
     if (type.includes('image')) return <FileImage className="h-5 w-5 text-blue-400" />;
@@ -34,6 +48,10 @@ export default async function KnowledgeTab(props: { params: Promise<{ project_id
         </div>
         <UploadDocumentModal projectId={params.project_id} />
       </div>
+
+      {project && (
+        <ProjectContextInput projectId={params.project_id} initialContext={project.project_context || ""} />
+      )}
 
       <div className="rounded-xl border border-zinc-800 bg-zinc-950 shadow-sm overflow-hidden">
         <div className="divide-y divide-zinc-800">

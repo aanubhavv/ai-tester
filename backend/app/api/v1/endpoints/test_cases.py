@@ -16,33 +16,15 @@ from app.schemas.planning.strategy import SuiteGenerationResult
 
 router = APIRouter()
 
-class GenerationRequest(BaseModel):
-    feature_name: str
-    suite_name: str
-
 @router.post("/{project_id}/test-cases/generate", status_code=status.HTTP_202_ACCEPTED)
-def generate_test_cases(project_id: str, request: GenerationRequest, background_tasks: BackgroundTasks) -> Any:
+def generate_test_cases(project_id: str, background_tasks: BackgroundTasks) -> Any:
     """
-    Triggers AI Test Case Generation for a specific suite.
+    Triggers AI Test Case Generation directly from Knowledge Base and Context.
     """
-    suites_data = planning_service.get_artifact(project_id, "test_suites.json")
-    if not suites_data:
-        raise HTTPException(status_code=404, detail="Test Suites not found. Run planning first.")
-        
-    suites = SuiteGenerationResult(**suites_data)
-    
-    # Find the target suite
-    target_suite = next((s for s in suites.suites if s.suite_name == request.suite_name), None)
-    if not target_suite:
-        raise HTTPException(status_code=404, detail=f"Suite {request.suite_name} not found.")
-
     def background_generation():
-        # Get context (requirements and risks)
-        reqs = planning_service.get_artifact(project_id, "requirements.json")
-        risks = planning_service.get_artifact(project_id, "risks.json")
-        
-        req_str = str(reqs) if reqs else "None"
-        risk_str = str(risks) if risks else "None"
+        from app.services.project_service import project_service
+        project = project_service.get_project(project_id)
+        project_context = project.project_context if project and project.project_context else "None provided."
         
         # Add Knowledge Base documents to context
         from app.services.knowledge_service import knowledge_service
@@ -53,24 +35,20 @@ def generate_test_cases(project_id: str, request: GenerationRequest, background_
             if content and not content.startswith("[Binary"):
                 docs_content.append(f"--- Document: {doc.title} ---\n{content}\n")
         
-        if docs_content:
-            req_str += "\n\n=== ADDITIONAL KNOWLEDGE BASE CONTEXT ===\n" + "\n".join(docs_content)
+        docs_context_str = "\n".join(docs_content) if docs_content else "No knowledge base documents."
         
         try:
-            generated_tests = generation_service.generate_for_suite(
+            generated_tests = generation_service.generate_direct(
                 project_id=project_id,
-                suite_name=target_suite.suite_name,
-                feature_name=target_suite.feature_name,
-                high_level_scenarios=target_suite.high_level_test_cases,
-                related_requirements=req_str,
-                risk_context=risk_str
+                project_context=project_context,
+                docs_content=docs_context_str
             )
             generation_service.save_test_cases(project_id, generated_tests)
         except Exception as e:
-            print(f"Failed to generate tests for suite {request.suite_name}: {e}")
+            print(f"Failed to generate tests: {e}")
 
     background_tasks.add_task(background_generation)
-    return {"message": f"Generation started for suite {request.suite_name}."}
+    return {"message": "Direct Generation started."}
 
 @router.get("/{project_id}/test-cases", response_model=List[TestCase])
 def get_test_cases(project_id: str) -> Any:

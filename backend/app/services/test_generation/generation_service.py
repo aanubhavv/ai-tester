@@ -50,6 +50,32 @@ class GenerationService:
             
         return result.test_cases
 
+    def generate_direct(
+        self,
+        project_id: str,
+        project_context: str,
+        docs_content: str
+    ) -> List[TestCase]:
+        """
+        Calls the AI Service to generate detailed test cases directly from context.
+        """
+        result: TestCaseGenerationResult = ai_service.generate_structured(
+            task="test_case_generation_direct",
+            schema_class=TestCaseGenerationResult,
+            context_kwargs={
+                "group": "test_generation",
+                "project_context": project_context,
+                "docs_content": docs_content
+            }
+        )
+        
+        # Enforce default traceability
+        for tc in result.test_cases:
+            tc.traceability.feature_name = "Direct Generation"
+            tc.traceability.test_suite_name = "Project Suite"
+            
+        return result.test_cases
+
     def save_test_cases(self, project_id: str, test_cases: List[TestCase]):
         """
         Persists the generated test cases to the project's data directory.

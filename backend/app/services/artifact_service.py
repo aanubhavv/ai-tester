@@ -70,6 +70,31 @@ class ArtifactService:
         self._root = Path(artifacts_dir)
         self._root.mkdir(parents=True, exist_ok=True)
 
+    @classmethod
+    def get_for_scan(cls, scan_id: str) -> "ArtifactService":
+        """
+        Finds the correct ArtifactService for a given scan_id.
+        Searches both the legacy artifacts/ directory and the new projects/ hierarchy.
+        """
+        from app.core.config import settings
+        from app.services.project_service import PROJECTS_ROOT
+
+        if scan_id:
+            # Check old location
+            old_dir = Path(settings.artifacts_dir) / "scans" / scan_id
+            if old_dir.exists():
+                return cls(artifacts_dir=settings.artifacts_dir)
+                
+            # Check new location (projects/<project_id>/executions/<scan_id>/artifacts)
+            if PROJECTS_ROOT.exists():
+                for project_dir in PROJECTS_ROOT.iterdir():
+                    if project_dir.is_dir():
+                        exec_dir = project_dir / "executions" / scan_id
+                        if exec_dir.exists():
+                            return cls(artifacts_dir=str(exec_dir / "artifacts"))
+                            
+        return cls(artifacts_dir=settings.artifacts_dir)
+
     # ------------------------------------------------------------------
     # Path helpers (private)
     # ------------------------------------------------------------------

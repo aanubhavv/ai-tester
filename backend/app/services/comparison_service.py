@@ -49,9 +49,12 @@ class ComparisonService:
 
         logger.info(f"Comparing {baseline_id} to {current_id}")
 
-        # 1. Load screenshots
-        baseline_path = self._artifact_service.get_screenshot_path(baseline_id)
-        current_path = self._artifact_service.get_screenshot_path(current_id)
+        # 1. Load screenshots using execution-scoped artifact services
+        baseline_service = ArtifactService.get_for_scan(baseline_id)
+        current_service = ArtifactService.get_for_scan(current_id)
+
+        baseline_path = baseline_service.get_screenshot_path(baseline_id)
+        current_path = current_service.get_screenshot_path(current_id)
 
         if not baseline_path:
             raise ComparisonError(f"Baseline screenshot not found for scan {baseline_id}")
@@ -67,8 +70,8 @@ class ComparisonService:
 
         # 2. Mask ignored regions
         if ignored_selectors:
-            self._mask_ignored_regions(baseline_id, img_baseline, ignored_selectors)
-            self._mask_ignored_regions(current_id, img_current, ignored_selectors)
+            self._mask_ignored_regions(baseline_id, img_baseline, ignored_selectors, baseline_service)
+            self._mask_ignored_regions(current_id, img_current, ignored_selectors, current_service)
 
         # 3. Align dimensions (Pad the smaller image to match the larger one)
         h_b, w_b = img_baseline.shape[:2]
@@ -178,13 +181,13 @@ class ComparisonService:
         padded[0:h, 0:w] = img
         return padded
 
-    def _mask_ignored_regions(self, scan_id: str, img: np.ndarray, selectors: list[str]) -> None:
+    def _mask_ignored_regions(self, scan_id: str, img: np.ndarray, selectors: list[str], service: ArtifactService) -> None:
         """
         Load layout.json for the scan and draw black rectangles over any
         elements matching the ignored selectors.
         """
         # Read layout.json
-        scan_dir = self._artifact_service._scan_dir(scan_id)
+        scan_dir = service._scan_dir(scan_id)
         layout_path = scan_dir / "analysis" / "layout.json"
         
         if not layout_path.exists():

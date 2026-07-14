@@ -35,28 +35,6 @@ router = APIRouter()
 from pathlib import Path
 from app.services.project_service import PROJECTS_ROOT
 
-def _get_artifact_service(scan_id: str = None) -> ArtifactService:
-    """
-    Finds the correct ArtifactService for a given scan_id.
-    Searches both the legacy artifacts/ directory and the new projects/ hierarchy.
-    """
-    if scan_id:
-        # Check old location
-        old_dir = Path(settings.artifacts_dir) / "scans" / scan_id
-        if old_dir.exists():
-            return ArtifactService(artifacts_dir=settings.artifacts_dir)
-            
-        # Check new location (projects/<project_id>/executions/<scan_id>/artifacts)
-        if PROJECTS_ROOT.exists():
-            for project_dir in PROJECTS_ROOT.iterdir():
-                if project_dir.is_dir():
-                    exec_dir = project_dir / "executions" / scan_id
-                    if exec_dir.exists():
-                        return ArtifactService(artifacts_dir=str(exec_dir / "artifacts"))
-                        
-    return ArtifactService(artifacts_dir=settings.artifacts_dir)
-
-
 @router.get("/scans", response_model=list[ScanListItemSchema])
 def list_scans():
     """
@@ -106,7 +84,7 @@ def get_scan_report(scan_id: str):
     Raises:
         HTTPException 404: If the scan doesn't exist or has no report.
     """
-    service = _get_artifact_service(scan_id)
+    service = ArtifactService.get_for_scan(scan_id)
 
     if not service.scan_exists(scan_id):
         raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found.")
@@ -138,7 +116,7 @@ def get_scan_screenshot(scan_id: str):
     Raises:
         HTTPException 404: If the scan or screenshot doesn't exist.
     """
-    service = _get_artifact_service(scan_id)
+    service = ArtifactService.get_for_scan(scan_id)
 
     if not service.scan_exists(scan_id):
         raise HTTPException(status_code=404, detail=f"Scan '{scan_id}' not found.")

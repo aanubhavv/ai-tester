@@ -44,6 +44,20 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
     }
   };
 
+  const handleGenerate = async () => {
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/generate`, {
+        method: "POST"
+      });
+      if (res.ok) {
+        alert("Test generation started in the background. Check back in a few minutes.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Failed to start generation.");
+    }
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-140px)]">
       <div className="flex items-center justify-between mb-6">
@@ -52,8 +66,11 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
           <p className="text-zinc-400 mt-1">Review, edit, and approve AI-generated test scenarios.</p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800 h-10 px-4 py-2">
-            Export CSV
+          <button 
+            onClick={handleGenerate}
+            className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800 h-10 px-4 py-2"
+          >
+            Generate Test Cases
           </button>
           <button className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-blue-600 text-white hover:bg-blue-700 h-10 px-4 py-2">
             <PlayCircle className="mr-2 h-4 w-4" />

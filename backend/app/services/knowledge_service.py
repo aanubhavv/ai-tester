@@ -107,6 +107,18 @@ class KnowledgeService:
         if not file_path.exists():
             return None
             
+        if file_path.suffix.lower() == ".pdf":
+            try:
+                import fitz
+                with fitz.open(file_path) as pdf_doc:
+                    text = ""
+                    for page in pdf_doc:
+                        text += page.get_text()
+                    return text
+            except Exception as e:
+                print(f"Error reading PDF content: {e}")
+                return "[PDF content unreadable]"
+            
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 return f.read()

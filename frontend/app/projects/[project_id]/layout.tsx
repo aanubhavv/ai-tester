@@ -28,17 +28,11 @@ export default async function ProjectLayout(props: {
   }
 
   const tabs = [
-    { name: 'Overview', href: `/projects/${project.project_id}` },
     { name: 'Knowledge', href: `/projects/${project.project_id}/knowledge` },
-    { name: 'Features', href: `/projects/${project.project_id}/features` },
-    { name: 'Flows', href: `/projects/${project.project_id}/flows` },
-    { name: 'Risk Matrix', href: `/projects/${project.project_id}/risk-matrix` },
-    { name: 'Testing Strategy', href: `/projects/${project.project_id}/strategy` },
-    { name: 'Test Suites', href: `/projects/${project.project_id}/test-suites` },
     { name: 'Test Cases', href: `/projects/${project.project_id}/test-cases` },
-    { name: 'Executions', href: `/projects/${project.project_id}/executions` },
+    { name: 'Scans', href: `/projects/${project.project_id}/scans` },
     { name: 'Comparisons', href: `/projects/${project.project_id}/comparisons` },
-    { name: 'Reports', href: `/projects/${project.project_id}/reports` },
+    { name: 'Executions', href: `/projects/${project.project_id}/executions` },
   ];
 
   return (

@@ -11,12 +11,14 @@ class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     primary_url: Optional[str] = None
+    project_context: Optional[str] = None
 
 class ProjectResponse(BaseModel):
     project_id: str
     name: str
     description: str
     primary_url: str
+    project_context: str = ""
     created_at: datetime
     updated_at: datetime
 

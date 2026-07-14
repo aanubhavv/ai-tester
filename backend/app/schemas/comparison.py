@@ -5,6 +5,7 @@ class ComparisonRequest(BaseModel):
     """
     Request payload for creating a new visual comparison.
     """
+    project_id: str = Field(..., description="The ID of the project.")
     baseline_scan_id: str = Field(..., description="The ID of the baseline scan artifact.")
     current_scan_id: str = Field(..., description="The ID of the current scan artifact to compare against.")
     threshold: Optional[float] = Field(
