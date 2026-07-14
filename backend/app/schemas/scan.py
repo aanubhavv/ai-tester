@@ -12,6 +12,7 @@ from app.schemas.analysis import AnalysisResponse
 class ScanRequest(BaseModel):
     url: str
     headed: bool = False
+    project_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,11 @@ from app.services.browser_service import BrowserService, ScanError
 from app.services.artifact_service import ArtifactService
 from app.services.scan_logger import ScanLogCollector
 from app.services.page_readiness import ReadinessConfig
-from app.models.scan_models import generate_scan_id, ScanStatus
+from app.models.scan_models import ScanStatus
+from app.models.execution_models import ExecutionType, ExecutionStatus
+from app.schemas.execution import ExecutionCreate
+from app.services.execution_service import execution_service
+from app.services.project_service import project_service, PROJECTS_ROOT
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -136,10 +140,27 @@ def scan_website(
             },
         )
 
-    # --- Generate scan identity ---
-    scan_id = generate_scan_id()
+    # --- Ensure Project Exists ---
+    project_id = body.project_id
+    if not project_id:
+        project_id = "default_project"
+        if not project_service.get_project(project_id):
+            from app.schemas.project import ProjectCreate
+            project_service.create_project(ProjectCreate(name="Default Project", description="Auto-created default project"))
+
+    # --- Generate execution/scan identity ---
+    execution = execution_service.create_execution(ExecutionCreate(
+        project_id=project_id,
+        type=ExecutionType.SCAN,
+        metadata={"url": body.url}
+    ))
+    scan_id = execution.execution_id
+    
     scan_log = ScanLogCollector()
-    artifact_service = ArtifactService(artifacts_dir=settings.artifacts_dir)
+    
+    # Store artifacts inside the execution directory
+    artifacts_path = str(PROJECTS_ROOT / project_id / "executions" / scan_id / "artifacts")
+    artifact_service = ArtifactService(artifacts_dir=artifacts_path)
     started_at = datetime.now().isoformat()
 
     # --- Build per-request options ---
@@ -215,6 +236,9 @@ def scan_website(
         scan_log.add("Scan completed successfully")
         artifact_service.save_scan_log(scan_id, scan_log.to_serializable())
 
+        # Update execution status
+        execution_service.update_status(project_id, scan_id, ExecutionStatus.COMPLETED)
+
         logger.info(f"Scan artifacts saved for {scan_id}")
 
         # Build screenshot URL for the response
@@ -259,6 +283,9 @@ def scan_website(
             artifact_service.save_scan_log(scan_id, scan_log.to_serializable())
         except Exception as persist_exc:
             logger.error(f"Failed to persist failed scan artifacts: {persist_exc}")
+
+        # Update execution status
+        execution_service.update_status(project_id, scan_id, ExecutionStatus.FAILED)
 
         return JSONResponse(
             status_code=502,
