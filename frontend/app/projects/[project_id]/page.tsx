@@ -1,40 +1,118 @@
-"use client";
+import { Activity, ShieldAlert, Layers, CheckSquare, PlaySquare, GitCompare, ExternalLink, Calendar, GitPullRequest } from "lucide-react";
 
-import { useEffect, useState } from "react";
+async function getProject(projectId: string) {
+  try {
+    const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return res.json();
+  } catch (error) {
+    return null;
+  }
+}
 
-export default function ProjectOverview({ params }: { params: { project_id: string } }) {
-  const [project, setProject] = useState<any>(null);
+async function getExecutions(projectId: string) {
+  try {
+    const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/executions`, { cache: 'no-store' });
+    if (!res.ok) return { executions: [], total: 0 };
+    return res.json();
+  } catch (error) {
+    return { executions: [], total: 0 };
+  }
+}
 
-  useEffect(() => {
-    fetch(`http://localhost:8000/api/v1/projects/${params.project_id}`)
-      .then((res) => res.json())
-      .then((data) => setProject(data))
-      .catch((err) => console.error("Failed to load project", err));
-  }, [params.project_id]);
+export default async function ProjectOverview(props: { params: Promise<{ project_id: string }> }) {
+  const params = await props.params;
+  const project = await getProject(params.project_id);
+  const { executions, total: totalExecutions } = await getExecutions(params.project_id);
 
-  if (!project) return <div>Loading project details...</div>;
+  if (!project) return null;
 
   return (
-    <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-      <h1 className="text-3xl font-bold mb-4">{project.name}</h1>
-      <p className="text-gray-700 text-lg mb-6">{project.description || "No description provided."}</p>
-      
-      <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
-        <div>
-          <strong className="block text-gray-900 mb-1">Project ID</strong>
-          <span className="font-mono bg-gray-100 px-2 py-1 rounded">{project.project_id}</span>
+    <div className="flex flex-col max-w-6xl mx-auto space-y-8">
+      <div>
+        <h2 className="text-2xl font-bold text-zinc-100">Project Overview</h2>
+        <p className="text-zinc-400 mt-1">{project.description || "No description provided."}</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6 shadow-sm">
+          <div className="flex items-center text-sm font-medium text-zinc-400 mb-2">
+            <Activity className="mr-2 h-4 w-4 text-blue-500" />
+            Features
+          </div>
+          <div className="text-3xl font-bold text-zinc-100">0</div>
         </div>
-        <div>
-          <strong className="block text-gray-900 mb-1">Primary URL</strong>
-          <span>{project.primary_url || "Not set"}</span>
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6 shadow-sm">
+          <div className="flex items-center text-sm font-medium text-zinc-400 mb-2">
+            <GitPullRequest className="mr-2 h-4 w-4 text-emerald-500" />
+            User Flows
+          </div>
+          <div className="text-3xl font-bold text-zinc-100">0</div>
         </div>
-        <div>
-          <strong className="block text-gray-900 mb-1">Created At</strong>
-          <span>{new Date(project.created_at).toLocaleString()}</span>
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6 shadow-sm">
+          <div className="flex items-center text-sm font-medium text-zinc-400 mb-2">
+            <Layers className="mr-2 h-4 w-4 text-purple-500" />
+            Test Suites
+          </div>
+          <div className="text-3xl font-bold text-zinc-100">0</div>
         </div>
-        <div>
-          <strong className="block text-gray-900 mb-1">Last Updated</strong>
-          <span>{new Date(project.updated_at).toLocaleString()}</span>
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6 shadow-sm">
+          <div className="flex items-center text-sm font-medium text-zinc-400 mb-2">
+            <PlaySquare className="mr-2 h-4 w-4 text-amber-500" />
+            Executions
+          </div>
+          <div className="text-3xl font-bold text-zinc-100">{totalExecutions}</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-6">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950 shadow-sm overflow-hidden">
+            <div className="px-6 py-5 border-b border-zinc-800">
+              <h3 className="text-lg font-semibold text-zinc-100">Recent Executions</h3>
+            </div>
+            <div className="divide-y divide-zinc-800">
+              {executions.length === 0 ? (
+                <div className="p-8 text-center text-zinc-500 text-sm">No executions found.</div>
+              ) : (
+                executions.slice(0, 5).map((execution: any) => (
+                  <div key={execution.id} className="flex items-center justify-between p-6 hover:bg-zinc-900/50 transition-colors">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-zinc-200">Execution {execution.id.split('-')[0]}</span>
+                      <span className="text-xs text-zinc-500 mt-1">{execution.status}</span>
+                    </div>
+                    <div className="text-xs text-zinc-400 flex items-center">
+                      <Calendar className="mr-1 h-3 w-3" />
+                      {new Date(execution.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950 shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-zinc-100 mb-4">Project Details</h3>
+            <div className="space-y-4">
+              <div>
+                <span className="block text-xs font-medium text-zinc-500 mb-1">Project ID</span>
+                <span className="text-sm text-zinc-300 font-mono bg-zinc-900 px-2 py-1 rounded">{project.id}</span>
+              </div>
+              <div>
+                <span className="block text-xs font-medium text-zinc-500 mb-1">Primary URL</span>
+                <a href={project.primary_url} target="_blank" rel="noreferrer" className="text-sm text-blue-400 hover:underline flex items-center">
+                  {project.primary_url}
+                  <ExternalLink className="ml-1 h-3 w-3" />
+                </a>
+              </div>
+              <div>
+                <span className="block text-xs font-medium text-zinc-500 mb-1">Created At</span>
+                <span className="text-sm text-zinc-300">{new Date(project.created_at).toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

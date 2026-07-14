@@ -97,6 +97,25 @@ class KnowledgeService:
             data = json.load(f)
             return DocumentModel(**data)
 
+    def get_document_content(self, project_id: str, document_id: str) -> Optional[str]:
+        """Get the raw text content of a document."""
+        doc = self.get_document(project_id, document_id)
+        if not doc:
+            return None
+        
+        file_path = Path(doc.file_path)
+        if not file_path.exists():
+            return None
+            
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except UnicodeDecodeError:
+            return "[Binary or non-UTF8 file content unreadable]"
+        except Exception as e:
+            print(f"Error reading document content: {e}")
+            return None
+
     def delete_document(self, project_id: str, document_id: str) -> bool:
         """Delete a document and its uploaded file."""
         doc = self.get_document(project_id, document_id)

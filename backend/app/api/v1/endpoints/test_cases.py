@@ -44,6 +44,18 @@ def generate_test_cases(project_id: str, request: GenerationRequest, background_
         req_str = str(reqs) if reqs else "None"
         risk_str = str(risks) if risks else "None"
         
+        # Add Knowledge Base documents to context
+        from app.services.knowledge_service import knowledge_service
+        docs = knowledge_service.list_documents(project_id)
+        docs_content = []
+        for doc in docs:
+            content = knowledge_service.get_document_content(project_id, doc.document_id)
+            if content and not content.startswith("[Binary"):
+                docs_content.append(f"--- Document: {doc.title} ---\n{content}\n")
+        
+        if docs_content:
+            req_str += "\n\n=== ADDITIONAL KNOWLEDGE BASE CONTEXT ===\n" + "\n".join(docs_content)
+        
         try:
             generated_tests = generation_service.generate_for_suite(
                 project_id=project_id,

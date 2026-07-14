@@ -53,6 +53,49 @@ def get_document(project_id: str, document_id: str) -> Any:
         )
     return doc
 
+@router.get("/{project_id}/documents/{document_id}/content")
+def get_document_content(project_id: str, document_id: str) -> Any:
+    """
+    Get the raw text content of a document.
+    """
+    content = knowledge_service.get_document_content(project_id, document_id)
+    if content is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document content not found for {document_id}"
+        )
+    return {"content": content}
+
+from fastapi.responses import FileResponse
+import mimetypes
+from pathlib import Path
+
+@router.get("/{project_id}/documents/{document_id}/file")
+def get_document_file(project_id: str, document_id: str) -> Any:
+    """
+    Get the physical file of a document for preview.
+    """
+    doc = knowledge_service.get_document(project_id, document_id)
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {document_id} not found"
+        )
+    
+    abs_path = Path(doc.file_path).resolve()
+    
+    if not abs_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found on server"
+        )
+        
+    mime_type, _ = mimetypes.guess_type(doc.filename)
+    if not mime_type:
+        mime_type = "application/octet-stream"
+        
+    return FileResponse(path=abs_path, filename=doc.filename, media_type=mime_type, content_disposition_type="inline")
+
 @router.delete("/{project_id}/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_document(project_id: str, document_id: str) -> None:
     """

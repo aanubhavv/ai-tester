@@ -1,65 +1,131 @@
-import Image from "next/image";
+import Link from "next/link";
+import { Plus, Play, BrainCircuit, Activity, CheckCircle2, Clock } from "lucide-react";
 
-export default function Home() {
+async function getProjects() {
+  try {
+    const res = await fetch('http://127.0.0.1:8000/api/v1/projects/', { cache: 'no-store' });
+    if (!res.ok) return { projects: [], total: 0 };
+    return res.json();
+  } catch (error) {
+    console.error("Failed to fetch projects:", error);
+    return { projects: [], total: 0 };
+  }
+}
+
+async function getScans() {
+  try {
+    const res = await fetch('http://127.0.0.1:8000/api/v1/scans/', { cache: 'no-store' });
+    if (!res.ok) return { scans: [], total: 0 };
+    const data = await res.json();
+    return { scans: Array.isArray(data) ? data : [], total: Array.isArray(data) ? data.length : 0 };
+  } catch (error) {
+    console.error("Failed to fetch scans:", error);
+    return { scans: [], total: 0 };
+  }
+}
+
+export default async function Dashboard() {
+  const { projects } = await getProjects();
+  const { scans } = await getScans();
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="flex flex-col flex-1 p-8">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-zinc-100">Overview</h1>
+          <p className="text-zinc-400 mt-1">Welcome back. Here's what's happening across your projects.</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="flex items-center gap-3">
+          <Link href="/projects/new" className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-blue-600 text-white hover:bg-blue-700 h-10 px-4 py-2">
+            <Plus className="mr-2 h-4 w-4" />
+            New Project
+          </Link>
         </div>
-      </main>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 shadow-sm">
+          <div className="flex items-center text-sm font-medium text-zinc-400 mb-2">
+            <Activity className="mr-2 h-4 w-4 text-blue-500" />
+            Total Projects
+          </div>
+          <div className="text-3xl font-bold text-zinc-100">{projects.length}</div>
+        </div>
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 shadow-sm">
+          <div className="flex items-center text-sm font-medium text-zinc-400 mb-2">
+            <Play className="mr-2 h-4 w-4 text-emerald-500" />
+            Total Executions
+          </div>
+          <div className="text-3xl font-bold text-zinc-100">{scans.length}</div>
+        </div>
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 shadow-sm">
+          <div className="flex items-center text-sm font-medium text-zinc-400 mb-2">
+            <CheckCircle2 className="mr-2 h-4 w-4 text-purple-500" />
+            System Health
+          </div>
+          <div className="text-3xl font-bold text-zinc-100">Healthy</div>
+        </div>
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 shadow-sm">
+          <div className="flex items-center text-sm font-medium text-zinc-400 mb-2">
+            <BrainCircuit className="mr-2 h-4 w-4 text-amber-500" />
+            AI Operations
+          </div>
+          <div className="text-3xl font-bold text-zinc-100">Active</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-6">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950 shadow-sm overflow-hidden">
+            <div className="px-6 py-5 border-b border-zinc-800 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-zinc-100">Active Projects</h2>
+              <Link href="/projects" className="text-sm font-medium text-blue-500 hover:text-blue-400">View all</Link>
+            </div>
+            <div className="divide-y divide-zinc-800">
+              {projects.length === 0 ? (
+                <div className="p-8 text-center text-zinc-500 text-sm">No projects found. Create one to get started.</div>
+              ) : (
+                projects.map((project: any) => (
+                  <Link href={`/projects/${project.project_id}`} key={project.project_id} className="flex items-center justify-between p-6 hover:bg-zinc-900/50 transition-colors">
+                    <div>
+                      <h3 className="text-base font-medium text-zinc-200">{project.name}</h3>
+                      <p className="text-sm text-zinc-500 mt-1">{project.description || 'No description provided'}</p>
+                    </div>
+                    <div className="flex items-center gap-4 text-sm text-zinc-400">
+                      <span className="flex items-center">
+                        <Clock className="mr-1 h-3 w-3" />
+                        {new Date(project.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950 shadow-sm overflow-hidden">
+            <div className="px-6 py-5 border-b border-zinc-800">
+              <h2 className="text-lg font-semibold text-zinc-100">Quick Actions</h2>
+            </div>
+            <div className="p-4 space-y-2">
+              <Link href="/projects/new" className="flex items-center w-full p-3 text-sm font-medium text-zinc-300 rounded-lg hover:bg-zinc-900 transition-colors">
+                <Plus className="mr-3 h-4 w-4 text-blue-400" />
+                Create New Project
+              </Link>
+              <Link href="/executions/new" className="flex items-center w-full p-3 text-sm font-medium text-zinc-300 rounded-lg hover:bg-zinc-900 transition-colors">
+                <Play className="mr-3 h-4 w-4 text-emerald-400" />
+                Run Website Scan
+              </Link>
+              <Link href="/ai-planning" className="flex items-center w-full p-3 text-sm font-medium text-zinc-300 rounded-lg hover:bg-zinc-900 transition-colors">
+                <BrainCircuit className="mr-3 h-4 w-4 text-purple-400" />
+                Generate AI Planning
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

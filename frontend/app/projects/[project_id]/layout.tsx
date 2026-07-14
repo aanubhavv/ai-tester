@@ -1,131 +1,88 @@
-"use client";
-
 import Link from "next/link";
-import { ReactNode } from "react";
-import { usePathname, useParams } from "next/navigation";
+import { FolderGit2, Settings } from "lucide-react";
 
-export default function ProjectLayout({
-  children,
-}: {
-  children: ReactNode;
+async function getProject(projectId: string) {
+  try {
+    const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return res.json();
+  } catch (error) {
+    return null;
+  }
+}
+
+export default async function ProjectLayout(props: {
+  children: React.ReactNode;
+  params: Promise<{ project_id: string }>;
 }) {
-  const params = useParams();
-  const projectId = params.project_id as string;
-  const pathname = usePathname();
+  const { children } = props;
+  const params = await props.params;
+  const project = await getProject(params.project_id);
 
-  const generalTabs = [
-    { name: "Overview", href: `/projects/${projectId}` },
-    { name: "Knowledge", href: `/projects/${projectId}/knowledge` },
-    { name: "Executions", href: `/projects/${projectId}/executions` },
-    { name: "Reports", href: `/projects/${projectId}/reports` },
+  if (!project) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-8 text-zinc-400">
+        Project not found or failed to load.
+      </div>
+    );
+  }
+
+  const tabs = [
+    { name: 'Overview', href: `/projects/${project.project_id}` },
+    { name: 'Knowledge', href: `/projects/${project.project_id}/knowledge` },
+    { name: 'Features', href: `/projects/${project.project_id}/features` },
+    { name: 'Flows', href: `/projects/${project.project_id}/flows` },
+    { name: 'Risk Matrix', href: `/projects/${project.project_id}/risk-matrix` },
+    { name: 'Testing Strategy', href: `/projects/${project.project_id}/strategy` },
+    { name: 'Test Suites', href: `/projects/${project.project_id}/test-suites` },
+    { name: 'Test Cases', href: `/projects/${project.project_id}/test-cases` },
+    { name: 'Executions', href: `/projects/${project.project_id}/executions` },
+    { name: 'Comparisons', href: `/projects/${project.project_id}/comparisons` },
+    { name: 'Reports', href: `/projects/${project.project_id}/reports` },
   ];
-
-  const qaBrainTabs = [
-    { name: "Requirements", href: `/projects/${projectId}/planning/requirements` },
-    { name: "Features", href: `/projects/${projectId}/planning/features` },
-    { name: "User Flows", href: `/projects/${projectId}/planning/flows` },
-    { name: "Risk Matrix", href: `/projects/${projectId}/planning/risks` },
-    { name: "Testing Strategy", href: `/projects/${projectId}/planning/strategy` },
-    { name: "Test Suites", href: `/projects/${projectId}/planning/suites` },
-  ];
-
-  const testCasesTabs = [
-    { name: "Drafts", href: `/projects/${projectId}/test-cases/drafts` },
-    { name: "Approved", href: `/projects/${projectId}/test-cases/approved` },
-    { name: "Coverage", href: `/projects/${projectId}/test-cases/coverage` },
-  ];
-
-  const handleGenerate = async () => {
-    try {
-      await fetch(`http://localhost:8000/api/v1/projects/${projectId}/planning/generate`, {
-        method: "POST"
-      });
-      alert("AI Planning Generation started! This may take a minute depending on context size.");
-    } catch (e) {
-      alert("Failed to start planning pipeline.");
-    }
-  };
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans text-gray-900">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-4 border-b border-gray-200">
-          <Link href="/projects" className="text-blue-600 font-medium hover:underline">
-            &larr; All Projects
-          </Link>
-          <div className="mt-4 font-bold text-lg text-gray-800">Project Workspace</div>
-          <div className="text-xs text-gray-500 font-mono mt-1 break-all">{projectId}</div>
+    <div className="flex flex-col min-h-full">
+      {/* Project Header */}
+      <div className="bg-zinc-950 border-b border-zinc-800 pt-8 px-8">
+        <div className="flex items-center justify-between pb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center h-10 w-10 rounded-lg bg-zinc-800 border border-zinc-700">
+              <FolderGit2 className="h-5 w-5 text-blue-400" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-zinc-100">{project.name}</h1>
+              <p className="text-sm text-zinc-400">{project.primary_url || "No URL provided"}</p>
+            </div>
+          </div>
+          <div>
+            <Link href={`/projects/${project.project_id}/settings`} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-zinc-800 bg-zinc-900 text-zinc-300 hover:bg-zinc-800 h-9 px-4 py-2">
+              <Settings className="mr-2 h-4 w-4" />
+              Settings
+            </Link>
+          </div>
         </div>
-        
-        <nav className="flex-1 overflow-y-auto p-4 space-y-6">
-          <div>
-            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">General</div>
-            <div className="space-y-1">
-              {generalTabs.map((tab) => (
-                <Link
-                  key={tab.name}
-                  href={tab.href}
-                  className={`block px-3 py-2 rounded-md transition ${
-                    pathname === tab.href ? "bg-blue-50 text-blue-700 font-medium" : "text-gray-700 hover:bg-gray-100 hover:text-blue-600"
-                  }`}
-                >
-                  {tab.name}
-                </Link>
-              ))}
-            </div>
-          </div>
 
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-bold text-purple-500 uppercase tracking-wider">QA Brain</div>
-            </div>
-            <div className="space-y-1">
-              {qaBrainTabs.map((tab) => (
-                <Link
-                  key={tab.name}
-                  href={tab.href}
-                  className={`block px-3 py-2 rounded-md transition ${
-                    pathname === tab.href ? "bg-purple-50 text-purple-700 font-medium" : "text-gray-700 hover:bg-gray-100 hover:text-purple-600"
-                  }`}
-                >
-                  {tab.name}
-                </Link>
-              ))}
-            </div>
-            <button 
-              onClick={handleGenerate}
-              className="mt-4 w-full text-xs font-semibold bg-purple-100 text-purple-700 py-2 rounded hover:bg-purple-200 transition"
-            >
-              Generate AI Plan
-            </button>
-          </div>
+        {/* Tabs */}
+        <div className="flex overflow-x-auto mt-4 hide-scrollbar">
+          <nav className="flex space-x-1" aria-label="Tabs">
+            {tabs.map((tab) => (
+              <Link
+                key={tab.name}
+                href={tab.href}
+                className="whitespace-nowrap py-3 px-4 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent hover:border-zinc-700 transition-colors"
+              >
+                {tab.name}
+              </Link>
+            ))}
+          </nav>
+        </div>
+      </div>
 
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-bold text-green-600 uppercase tracking-wider">Test Cases</div>
-            </div>
-            <div className="space-y-1">
-              {testCasesTabs.map((tab) => (
-                <Link
-                  key={tab.name}
-                  href={tab.href}
-                  className={`block px-3 py-2 rounded-md transition ${
-                    pathname.startsWith(tab.href) ? "bg-green-50 text-green-700 font-medium" : "text-gray-700 hover:bg-gray-100 hover:text-green-600"
-                  }`}
-                >
-                  {tab.name}
-                </Link>
-              ))}
-            </div>
-          </div>
-        </nav>
-      </aside>
-
-      {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto p-8">
+      {/* Content Area */}
+      <div className="flex-1 p-8">
         {children}
-      </main>
+      </div>
     </div>
   );
 }
