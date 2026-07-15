@@ -1,11 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Circle, AlertCircle, PlayCircle, Eye, Tag, Beaker, FileText, X, Download, Save, Edit } from "lucide-react";
+import { Download, Beaker, PlayCircle, Eye, Edit2, Check, X, CheckCircle2, AlertCircle, Circle, FileText, Save, Edit } from "lucide-react";
+import { useToast } from "@/components/ui/ToastProvider";
+import { useConfirm } from "@/components/ui/ConfirmProvider";
 import { useRouter } from "next/navigation";
 
 export default function ClientTestCases({ initialTestCases, projectId }: { initialTestCases: any[], projectId: string }) {
   const router = useRouter();
+  const { success, error } = useToast();
+  const { confirm } = useConfirm();
   const [selectedCase, setSelectedCase] = useState<any | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedCase, setEditedCase] = useState<any | null>(null);
@@ -22,7 +26,12 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
 
   const handleGenerate = async () => {
     if (initialTestCases.length > 0) {
-      const confirmed = window.confirm("This action will delete your previously generated test cases. Do you want to still continue?");
+      const confirmed = await confirm({
+        title: "Regenerate Test Cases",
+        message: "This action will delete your previously generated test cases. Do you want to still continue?",
+        confirmText: "Yes, Regenerate",
+        cancelText: "Cancel"
+      });
       if (!confirmed) return;
     }
 
@@ -31,14 +40,14 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
         method: "POST"
       });
       if (res.ok) {
-        alert("Test generation started in the background. Check back in a few minutes.");
+        success("Test generation started in the background. Check back in a few minutes.");
       } else {
         const errorData = await res.json().catch(() => ({}));
-        alert(`Failed to start generation: ${errorData.detail || 'Unknown error'}`);
+        error(`Failed to start generation: ${errorData.detail || 'Unknown error'}`);
       }
     } catch (e) {
       console.error(e);
-      alert("Failed to start generation.");
+      error("Failed to start generation.");
     }
   };
 
@@ -73,12 +82,13 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
         setSelectedCase(updated);
         setIsEditing(false);
         router.refresh();
+        success("Changes saved successfully.");
       } else {
-        alert("Failed to save changes.");
+        error("Failed to save changes.");
       }
     } catch (e) {
       console.error(e);
-      alert("An error occurred while saving.");
+      error("An error occurred while saving.");
     } finally {
       setIsSaving(false);
     }

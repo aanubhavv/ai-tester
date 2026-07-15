@@ -13,6 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 import Sidebar from "@/components/layout/sidebar";
+import { GlobalUIProvider } from "@/components/ui/GlobalUIProvider";
 
 export const metadata: Metadata = {
   title: "QAForge",
@@ -30,10 +31,12 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
     >
       <body className="flex h-full bg-zinc-900 text-zinc-50 overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto bg-zinc-50 text-zinc-950 dark:bg-black dark:text-zinc-50">
-          {children}
-        </main>
+        <GlobalUIProvider>
+          <Sidebar />
+          <main className="flex-1 overflow-y-auto bg-zinc-50 text-zinc-950 dark:bg-black dark:text-zinc-50">
+            {children}
+          </main>
+        </GlobalUIProvider>
       </body>
     </html>
   );
