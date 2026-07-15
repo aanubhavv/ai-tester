@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { FolderGit2, Settings } from "lucide-react";
+import ProjectTabs from "./ProjectTabs";
 
 async function getProject(projectId: string) {
   try {
@@ -27,14 +28,7 @@ export default async function ProjectLayout(props: {
     );
   }
 
-  const tabs = [
-    { name: 'Overview', href: `/projects/${project.project_id}` },
-    { name: 'Knowledge', href: `/projects/${project.project_id}/knowledge` },
-    { name: 'Test Cases', href: `/projects/${project.project_id}/test-cases` },
-    { name: 'Scans', href: `/projects/${project.project_id}/scans` },
-    { name: 'Comparisons', href: `/projects/${project.project_id}/comparisons` },
-    { name: 'Executions', href: `/projects/${project.project_id}/executions` },
-  ];
+
 
   return (
     <div className="flex flex-col min-h-full">
@@ -59,19 +53,7 @@ export default async function ProjectLayout(props: {
         </div>
 
         {/* Tabs */}
-        <div className="flex overflow-x-auto mt-4 hide-scrollbar">
-          <nav className="flex space-x-1" aria-label="Tabs">
-            {tabs.map((tab) => (
-              <Link
-                key={tab.name}
-                href={tab.href}
-                className="whitespace-nowrap py-3 px-4 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent hover:border-zinc-700 transition-colors"
-              >
-                {tab.name}
-              </Link>
-            ))}
-          </nav>
-        </div>
+        <ProjectTabs projectId={project.project_id} />
       </div>
 
       {/* Content Area */}
