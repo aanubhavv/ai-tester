@@ -27,8 +27,7 @@ def generate_test_cases(project_id: str, background_tasks: BackgroundTasks) -> A
         
         project_context = project_service.get_project_context(project_id)
         if not project_context:
-            project_context = "None provided."
-        
+            project_context = "None provided."        
         # Add Knowledge Base documents to context
         from app.services.knowledge_service import knowledge_service
         docs = knowledge_service.list_documents(project_id)
@@ -86,18 +85,13 @@ def update_test_case(project_id: str, test_id: str, updates: dict) -> Any:
     if not target:
         raise HTTPException(status_code=404, detail="Test Case not found.")
         
-    updated_test = version_service.bump_version(target, updates)
+    target_dict = target.model_dump()
+    target_dict.update(updates)
+    updated_test = TestCase(**target_dict)
     
-    # Save back
+    # Save back to JSON and XLSX
     new_list = [updated_test if t.id == test_id else t for t in tests]
-    
-    # The generation service save method merges by ID, so we just overwrite the whole list directly 
-    # to avoid merging logic bypassing updates.
-    tests_dir = generation_service._get_project_dir(project_id) / "test_cases"
-    file_path = tests_dir / "test_cases.json"
-    import json
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump([tc.model_dump() for tc in new_list], f, indent=2)
+    generation_service.save_test_cases(project_id, new_list)
         
     return updated_test
 
@@ -105,9 +99,19 @@ def update_test_case(project_id: str, test_id: str, updates: dict) -> Any:
 def approve_test_case(project_id: str, test_id: str) -> Any:
     return update_test_case(project_id, test_id, {"status": TestCaseStatus.APPROVED})
 
-@router.get("/{project_id}/test-cases/export/csv")
-def export_csv(project_id: str) -> Any:
-    from fastapi.responses import PlainTextResponse
-    tests = generation_service.get_test_cases(project_id)
-    csv_data = export_service.export_to_csv(tests)
-    return PlainTextResponse(content=csv_data, media_type="text/csv")
+@router.get("/{project_id}/test-cases/export/xlsx")
+def export_xlsx(project_id: str) -> Any:
+    from fastapi.responses import FileResponse
+    import os
+    
+    tests_dir = generation_service._get_project_dir(project_id) / "test_cases"
+    xlsx_path = tests_dir / "test_cases.xlsx"
+    
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail="Excel export not found.")
+        
+    return FileResponse(
+        path=str(xlsx_path),
+        filename="test_cases.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )

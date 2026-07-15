@@ -1,47 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Circle, AlertCircle, PlayCircle, Eye, Tag, Beaker, FileText, X } from "lucide-react";
+import { CheckCircle2, Circle, AlertCircle, PlayCircle, Eye, Tag, Beaker, FileText, X, Download, Save, Edit } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export default function ClientTestCases({ initialTestCases, projectId }: { initialTestCases: any[], projectId: string }) {
   const router = useRouter();
   const [selectedCase, setSelectedCase] = useState<any | null>(null);
-
-  const getPriorityColor = (priority: string) => {
-    switch(priority?.toLowerCase()) {
-      case 'critical': return 'bg-red-500/10 text-red-400 ring-red-500/20';
-      case 'high': return 'bg-orange-500/10 text-orange-400 ring-orange-500/20';
-      case 'medium': return 'bg-blue-500/10 text-blue-400 ring-blue-500/20';
-      case 'low': return 'bg-zinc-500/10 text-zinc-400 ring-zinc-500/20';
-      default: return 'bg-zinc-500/10 text-zinc-400 ring-zinc-500/20';
-    }
-  };
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedCase, setEditedCase] = useState<any | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const getStatusIcon = (status: string) => {
-    switch(status?.toLowerCase()) {
-      case 'approved': return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
-      case 'reviewed': return <Eye className="h-4 w-4 text-blue-500" />;
-      case 'draft': return <Circle className="h-4 w-4 text-zinc-500" />;
-      case 'deprecated': return <AlertCircle className="h-4 w-4 text-red-500" />;
-      default: return <Circle className="h-4 w-4 text-zinc-500" />;
-    }
-  };
-
-  const handleApprove = async () => {
-    if (!selectedCase) return;
-    try {
-      const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/${selectedCase.id}/approve`, {
-        method: "POST"
-      });
-      if (res.ok) {
-        router.refresh();
-        const updated = await res.json();
-        setSelectedCase(updated);
-      }
-    } catch (e) {
-      console.error(e);
-    }
+    if (!status) return <Circle className="h-4 w-4 text-zinc-500" />;
+    const s = status.toLowerCase();
+    if (s.includes('pass') || s.includes('approved')) return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
+    if (s.includes('fail')) return <AlertCircle className="h-4 w-4 text-red-500" />;
+    if (s.includes('blocked')) return <AlertCircle className="h-4 w-4 text-orange-500" />;
+    return <Circle className="h-4 w-4 text-zinc-500" />;
   };
 
   const handleGenerate = async () => {
@@ -51,6 +27,9 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
       });
       if (res.ok) {
         alert("Test generation started in the background. Check back in a few minutes.");
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        alert(`Failed to start generation: ${errorData.detail || 'Unknown error'}`);
       }
     } catch (e) {
       console.error(e);
@@ -58,171 +37,375 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
     }
   };
 
+  const handleExport = () => {
+    window.open(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/export/xlsx`, '_blank');
+  };
+
+  const startEditing = () => {
+    setEditedCase({ ...selectedCase });
+    setIsEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+    setEditedCase(null);
+  };
+
+  const handleSave = async () => {
+    if (!editedCase) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/${editedCase.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(editedCase)
+      });
+      
+      if (res.ok) {
+        const updated = await res.json();
+        setSelectedCase(updated);
+        setIsEditing(false);
+        router.refresh();
+      } else {
+        alert("Failed to save changes.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("An error occurred while saving.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleChange = (field: string, value: string) => {
+    setEditedCase((prev: any) => ({ ...prev, [field]: value }));
+  };
+
+  const renderFormattedText = (text: string | undefined | null) => {
+    if (!text) return null;
+    const withNewlines = text.replace(/<br\s*\/?>/gi, '\n');
+    const parts = withNewlines.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} className="font-semibold text-zinc-100">{part.slice(2, -2)}</strong>;
+      }
+      return <span key={i}>{part}</span>;
+    });
+  };
+
   return (
-    <div className="flex flex-col h-[calc(100vh-140px)]">
-      <div className="flex items-center justify-between mb-6">
+    <div className="flex flex-col h-full bg-black text-zinc-300">
+      <div className="flex-none p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/50 backdrop-blur-sm z-10 sticky top-0">
         <div>
-          <h2 className="text-2xl font-bold text-zinc-100">Test Cases</h2>
-          <p className="text-zinc-400 mt-1">Review, edit, and approve AI-generated test scenarios.</p>
+          <h2 className="text-xl font-semibold text-zinc-100 flex items-center gap-2">
+            <Beaker className="h-5 w-5 text-blue-400" />
+            Test Cases
+          </h2>
+          <p className="text-sm text-zinc-500 mt-1">Generated test cases in tabular format.</p>
         </div>
         <div className="flex items-center gap-3">
           <button 
-            onClick={handleGenerate}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800 h-10 px-4 py-2"
+            onClick={handleExport}
+            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-md text-sm font-medium transition-colors border border-zinc-700 flex items-center gap-2"
           >
-            Generate Test Cases
+            <Download className="h-4 w-4" />
+            Export to Excel
           </button>
-          <button className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-blue-600 text-white hover:bg-blue-700 h-10 px-4 py-2">
-            <PlayCircle className="mr-2 h-4 w-4" />
-            Run Selected
+          <button 
+            onClick={handleGenerate}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors shadow-sm shadow-blue-900/20 flex items-center gap-2"
+          >
+            <PlayCircle className="h-4 w-4" />
+            Generate Test Cases
           </button>
         </div>
       </div>
 
-      <div className="flex flex-1 gap-6 overflow-hidden">
-        {/* Table View */}
-        <div className={`flex flex-col bg-zinc-950 rounded-xl border border-zinc-800 overflow-hidden transition-all duration-300 ${selectedCase ? 'w-2/3' : 'w-full'}`}>
-          <div className="flex-1 overflow-auto hide-scrollbar">
-            {(!initialTestCases || initialTestCases.length === 0) ? (
-              <div className="flex flex-col items-center justify-center h-full p-12 text-center">
-                <div className="h-12 w-12 rounded-full bg-zinc-900 flex items-center justify-center mb-4">
-                  <FileText className="h-6 w-6 text-zinc-500" />
-                </div>
-                <h3 className="text-lg font-medium text-zinc-200">No test cases found</h3>
-                <p className="text-sm text-zinc-500 mt-1 max-w-sm">Generate test cases from your test suites to populate this table.</p>
-              </div>
-            ) : (
-              <table className="min-w-full divide-y divide-zinc-800 text-left text-sm">
-                <thead className="bg-zinc-900/50 sticky top-0 z-10">
-                  <tr>
-                    <th scope="col" className="px-6 py-4 font-semibold text-zinc-300 w-10"></th>
-                    <th scope="col" className="px-6 py-4 font-semibold text-zinc-300">Title</th>
-                    <th scope="col" className="px-6 py-4 font-semibold text-zinc-300">Feature</th>
-                    <th scope="col" className="px-6 py-4 font-semibold text-zinc-300">Type</th>
-                    <th scope="col" className="px-6 py-4 font-semibold text-zinc-300">Priority</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800">
-                  {initialTestCases.map((tc) => (
-                    <tr 
-                      key={tc.id} 
-                      onClick={() => setSelectedCase(tc)}
-                      className={`cursor-pointer transition-colors ${selectedCase?.id === tc.id ? 'bg-zinc-900 border-l-2 border-l-blue-500' : 'hover:bg-zinc-900/50 border-l-2 border-l-transparent'}`}
-                    >
-                      <td className="px-6 py-4">
-                        <div title={tc.status}>{getStatusIcon(tc.status)}</div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="font-medium text-zinc-200 block truncate max-w-xs">{tc.title}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-zinc-400 truncate max-w-[150px] block">{tc.traceability?.feature_name || "Unknown"}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-zinc-400">{tc.type}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${getPriorityColor(tc.priority)}`}>
-                          {tc.priority}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+      <div className="flex-1 overflow-auto">
+        {initialTestCases.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full p-12 text-center">
+            <div className="h-12 w-12 rounded-full bg-zinc-900 flex items-center justify-center mb-4">
+              <Beaker className="h-6 w-6 text-zinc-500" />
+            </div>
+            <h3 className="text-lg font-medium text-zinc-200">No test cases yet</h3>
+            <p className="text-sm text-zinc-500 mt-1 max-w-md">
+              Generate test cases from your requirements and knowledge base context.
+            </p>
           </div>
-        </div>
-
-        {/* Details Panel */}
-        {selectedCase && (
-          <div className="w-1/3 flex flex-col bg-zinc-950 rounded-xl border border-zinc-800 overflow-hidden animate-in slide-in-from-right-8 duration-300">
-            <div className="flex items-start justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/30">
-              <div className="flex items-center gap-2">
-                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${getPriorityColor(selectedCase.priority)}`}>
-                  {selectedCase.priority}
-                </span>
-                <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{selectedCase.type}</span>
-              </div>
-              <button 
-                onClick={() => setSelectedCase(null)}
-                className="text-zinc-500 hover:text-zinc-300 transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-6 space-y-8 hide-scrollbar">
-              <div>
-                <h3 className="text-lg font-bold text-zinc-100 mb-2">{selectedCase.title}</h3>
-                <p className="text-sm text-zinc-400 leading-relaxed">{selectedCase.description}</p>
-                <div className="mt-3 flex items-center gap-4 text-xs text-zinc-500">
-                  <span className="flex items-center gap-1"><Tag className="h-3 w-3" /> v{selectedCase.version}</span>
-                  <span className="flex items-center gap-1"><Beaker className="h-3 w-3" /> {selectedCase.status}</span>
-                </div>
-              </div>
-
-              {selectedCase.preconditions && (
-                <div>
-                  <h4 className="text-sm font-semibold text-zinc-300 mb-2 border-b border-zinc-800 pb-2">Preconditions</h4>
-                  <p className="text-sm text-zinc-400">{selectedCase.preconditions}</p>
-                </div>
-              )}
-
-              <div>
-                <h4 className="text-sm font-semibold text-zinc-300 mb-3 border-b border-zinc-800 pb-2">Test Steps</h4>
-                <div className="space-y-4">
-                  {(selectedCase.steps || []).map((step: any, idx: number) => (
-                    <div key={idx} className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50">
-                      <div className="flex items-start gap-3">
-                        <span className="flex items-center justify-center h-5 w-5 rounded-full bg-zinc-800 text-xs font-medium text-zinc-400 shrink-0">
-                          {step.step_number || idx + 1}
-                        </span>
-                        <div className="space-y-2 text-sm w-full">
-                          <div>
-                            <span className="text-zinc-500 text-xs block mb-0.5">Action</span>
-                            <span className="text-zinc-200">{step.action}</span>
-                          </div>
-                          {step.test_data && (
-                            <div className="bg-zinc-950 p-2 rounded border border-zinc-800 font-mono text-xs text-amber-400/90 overflow-x-auto">
-                              {step.test_data}
-                            </div>
-                          )}
-                          <div className="bg-emerald-500/5 p-2 rounded border border-emerald-500/10">
-                            <span className="text-emerald-500/70 text-xs block mb-0.5">Expected Result</span>
-                            <span className="text-zinc-300">{step.expected_result}</span>
-                          </div>
-                        </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-zinc-800 text-left text-sm whitespace-nowrap">
+              <thead className="bg-zinc-900/80 sticky top-0 z-10">
+                <tr>
+                  <th className="px-4 py-3 font-semibold text-zinc-300">TC ID</th>
+                  <th className="px-4 py-3 font-semibold text-zinc-300">Type</th>
+                  <th className="px-4 py-3 font-semibold text-zinc-300">Module/Area</th>
+                  <th className="px-4 py-3 font-semibold text-zinc-300">Title</th>
+                  <th className="px-4 py-3 font-semibold text-zinc-300">Severity</th>
+                  <th className="px-4 py-3 font-semibold text-zinc-300">Priority</th>
+                  <th className="px-4 py-3 font-semibold text-zinc-300">Status</th>
+                  <th className="px-4 py-3 font-semibold text-zinc-300">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/50">
+                {initialTestCases.map((tc) => (
+                  <tr key={tc.id} className="hover:bg-zinc-900/30 transition-colors">
+                    <td className="px-4 py-3 font-medium text-zinc-300">{tc.tc_id}</td>
+                    <td className="px-4 py-3 text-zinc-400">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700">
+                        {tc.test_type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-zinc-400">{tc.module_area}</td>
+                    <td className="px-4 py-3 text-zinc-200 font-medium truncate max-w-[200px]" title={tc.title}>
+                      {tc.title}
+                    </td>
+                    <td className="px-4 py-3 text-zinc-400">{tc.severity}</td>
+                    <td className="px-4 py-3 text-zinc-400">{tc.priority}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        {getStatusIcon(tc.status)}
+                        <span className="text-zinc-300">{tc.status}</span>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {selectedCase.postconditions && (
-                <div>
-                  <h4 className="text-sm font-semibold text-zinc-300 mb-2 border-b border-zinc-800 pb-2">Postconditions</h4>
-                  <p className="text-sm text-zinc-400">{selectedCase.postconditions}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="p-4 border-t border-zinc-800 bg-zinc-900/30 flex items-center justify-end gap-2">
-              <button className="px-3 py-1.5 text-sm font-medium text-zinc-300 hover:text-white transition-colors">
-                Edit
-              </button>
-              {selectedCase.status !== 'Approved' && (
-                <button 
-                  onClick={handleApprove}
-                  className="px-3 py-1.5 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition-colors"
-                >
-                  Approve
-                </button>
-              )}
-            </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button 
+                        onClick={() => setSelectedCase(tc)}
+                        className="text-blue-400 hover:text-blue-300 font-medium text-sm transition-colors"
+                      >
+                        View Details
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
+
+      {/* Details Modal */}
+      {selectedCase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 sm:p-6">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/50">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-zinc-800 border border-zinc-700">
+                  <FileText className="h-4 w-4 text-zinc-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium text-zinc-100 flex items-center gap-2">
+                    {isEditing ? (
+                      <input 
+                        type="text" 
+                        value={editedCase?.title} 
+                        onChange={(e) => handleChange('title', e.target.value)}
+                        className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm w-96 text-zinc-100"
+                      />
+                    ) : (
+                      <>{selectedCase.tc_id}: {selectedCase.title}</>
+                    )}
+                  </h3>
+                  {!isEditing && (
+                    <div className="flex items-center gap-2 text-xs text-zinc-500 mt-0.5">
+                      <span>{selectedCase.module_area}</span>
+                      <span>•</span>
+                      <span className="uppercase">{selectedCase.test_type}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {isEditing ? (
+                  <>
+                    <button 
+                      onClick={cancelEditing}
+                      className="px-3 py-1.5 text-sm font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      className="px-3 py-1.5 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition-colors flex items-center gap-2 disabled:opacity-50"
+                    >
+                      <Save className="h-4 w-4" />
+                      {isSaving ? "Saving..." : "Save Changes"}
+                    </button>
+                  </>
+                ) : (
+                  <button 
+                    onClick={startEditing}
+                    className="px-3 py-1.5 text-sm font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-md transition-colors flex items-center gap-2 border border-zinc-700"
+                  >
+                    <Edit className="h-4 w-4" />
+                    Edit
+                  </button>
+                )}
+                <div className="w-px h-6 bg-zinc-800 mx-1"></div>
+                <button 
+                  onClick={() => { setSelectedCase(null); setIsEditing(false); }} 
+                  className="text-zinc-400 hover:text-zinc-200 transition-colors p-1 hover:bg-zinc-800 rounded-md"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
+                {/* Main Content */}
+                <div className="md:col-span-2 space-y-6">
+                  <div>
+                    <h4 className="text-sm font-semibold text-zinc-100 mb-2 uppercase tracking-wider">Preconditions</h4>
+                    {isEditing ? (
+                      <textarea 
+                        value={editedCase?.preconditions}
+                        onChange={(e) => handleChange('preconditions', e.target.value)}
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-sm text-zinc-300 min-h-[80px]"
+                      />
+                    ) : (
+                      <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800/50 text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                        {renderFormattedText(selectedCase.preconditions) || "None"}
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div>
+                    <h4 className="text-sm font-semibold text-zinc-100 mb-2 uppercase tracking-wider">Test Steps</h4>
+                    {isEditing ? (
+                      <textarea 
+                        value={editedCase?.test_steps}
+                        onChange={(e) => handleChange('test_steps', e.target.value)}
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-sm text-zinc-300 min-h-[120px]"
+                      />
+                    ) : (
+                      <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800/50 text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                        {renderFormattedText(selectedCase.test_steps)}
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <h4 className="text-sm font-semibold text-zinc-100 mb-2 uppercase tracking-wider">Expected Result</h4>
+                      {isEditing ? (
+                        <textarea 
+                          value={editedCase?.expected_result}
+                          onChange={(e) => handleChange('expected_result', e.target.value)}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-sm text-zinc-300 min-h-[100px]"
+                        />
+                      ) : (
+                        <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800/50 text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap h-full">
+                          {renderFormattedText(selectedCase.expected_result)}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-semibold text-zinc-100 mb-2 uppercase tracking-wider">Actual Result</h4>
+                      {isEditing ? (
+                        <textarea 
+                          value={editedCase?.actual_result}
+                          onChange={(e) => handleChange('actual_result', e.target.value)}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-sm text-zinc-300 min-h-[100px]"
+                        />
+                      ) : (
+                        <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800/50 text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap h-full">
+                          {renderFormattedText(selectedCase.actual_result) || "N/A"}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Sidebar */}
+                <div className="space-y-6">
+                  {isEditing && (
+                    <div className="bg-zinc-900/30 p-5 rounded-lg border border-zinc-800/50">
+                      <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-4">Edit Identifiers</h4>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-xs text-zinc-500 mb-1">TC ID</label>
+                          <input type="text" value={editedCase?.tc_id} onChange={(e) => handleChange('tc_id', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-300" />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-zinc-500 mb-1">Module / Area</label>
+                          <input type="text" value={editedCase?.module_area} onChange={(e) => handleChange('module_area', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-300" />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-zinc-500 mb-1">Test Type</label>
+                          <input type="text" value={editedCase?.test_type} onChange={(e) => handleChange('test_type', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-300" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-zinc-900/30 p-5 rounded-lg border border-zinc-800/50">
+                    <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-4">Metadata</h4>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs text-zinc-500 mb-1">Status</label>
+                        {isEditing ? (
+                          <select 
+                            value={editedCase?.status || "Not Executed"} 
+                            onChange={(e) => handleChange('status', e.target.value)} 
+                            className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-300 outline-none focus:border-zinc-500"
+                          >
+                            <option value="Not Executed">Not Executed</option>
+                            <option value="Pass">Pass</option>
+                            <option value="Fail">Fail</option>
+                            <option value="Blocked">Blocked</option>
+                          </select>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            {getStatusIcon(selectedCase.status)}
+                            <span className="text-sm font-medium text-zinc-300">{selectedCase.status}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-xs text-zinc-500 mb-1">Severity</label>
+                        {isEditing ? (
+                          <input type="text" value={editedCase?.severity} onChange={(e) => handleChange('severity', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-300" />
+                        ) : (
+                          <span className="text-sm font-medium text-zinc-300">{selectedCase.severity}</span>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-xs text-zinc-500 mb-1">Priority</label>
+                        {isEditing ? (
+                          <input type="text" value={editedCase?.priority} onChange={(e) => handleChange('priority', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-300" />
+                        ) : (
+                          <span className="text-sm font-medium text-zinc-300">{selectedCase.priority}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="text-sm font-semibold text-zinc-100 mb-2 uppercase tracking-wider">Remarks</h4>
+                    {isEditing ? (
+                      <textarea 
+                        value={editedCase?.remarks}
+                        onChange={(e) => handleChange('remarks', e.target.value)}
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-sm text-zinc-300 min-h-[80px]"
+                      />
+                    ) : (
+                      <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800/50 text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                        {renderFormattedText(selectedCase.remarks) || "No remarks."}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

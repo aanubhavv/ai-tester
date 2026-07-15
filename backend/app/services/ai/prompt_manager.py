@@ -27,6 +27,9 @@ class PromptManager:
         with open(prompt_path, "r", encoding="utf-8") as f:
             template = f.read()
             
+        # Replace the user's {{var}} syntax with {var} for str.format
+        template = template.replace("{{", "{").replace("}}", "}")
+        
         # Format the template with injected variables
         try:
             return template.format(**kwargs)

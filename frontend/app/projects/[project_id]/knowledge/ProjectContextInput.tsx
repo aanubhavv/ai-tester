@@ -47,7 +47,7 @@ export default function ProjectContextInput({ projectId, initialContext }: Proje
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950 shadow-sm overflow-hidden flex flex-col">
       <div className="px-6 py-4 border-b border-zinc-800 bg-zinc-900/50 flex items-center justify-between">
-        <h3 className="text-lg font-medium text-zinc-100">Project Context</h3>
+        <h3 className="text-lg font-medium text-zinc-100">Additional Project Context</h3>
         <div className="flex items-center gap-2">
           {saveStatus === "success" && (
             <span className="text-xs text-emerald-400 flex items-center">

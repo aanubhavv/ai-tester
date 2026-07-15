@@ -128,7 +128,7 @@ class KnowledgeService:
             return None
             
         if file_path.suffix.lower() == ".pdf":
-            extracted_file = self._get_knowledge_dir(project_id) / "extracted" / f"{file_path.stem}.md"
+            extracted_file = self._get_knowledge_dir(project_id) / "extracted" / f"{Path(doc.filename).stem}.md"
             if extracted_file.exists():
                 with open(extracted_file, "r", encoding="utf-8") as f:
                     return f.read()

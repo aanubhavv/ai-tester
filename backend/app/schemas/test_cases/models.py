@@ -58,26 +58,22 @@ class TestStep(BaseModel):
 
 class TestCase(BaseModel):
     """
-    The core Test Case model. Represents an editable, reviewable QA test.
+    The core Test Case model. Represents an editable, reviewable QA test in the 13-column format.
     """
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique ID for the test case.")
-    version: int = Field(default=1, description="Version tracking for audit history.")
-    title: str = Field(description="A clear, concise title for the test case.")
-    description: str = Field(description="A detailed description of the test case's purpose.")
-    
-    # Classification
-    status: TestCaseStatus = Field(default=TestCaseStatus.DRAFT)
-    priority: TestCasePriority = Field(default=TestCasePriority.MEDIUM)
-    type: TestCaseType = Field(default=TestCaseType.FUNCTIONAL)
-    tags: List[str] = Field(default_factory=list)
-    
-    # Execution Logic
-    preconditions: str = Field(default="", description="Setup required before the test can run.")
-    steps: List[TestStep] = Field(description="The exact steps to execute the test.")
-    postconditions: str = Field(default="", description="Cleanup or assertions after the test finishes.")
-    
-    # Traceability
-    traceability: Traceability
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique backend ID")
+    tc_id: str = Field(description="TC ID (e.g. CHK-001)")
+    test_type: str = Field(description="Test Type")
+    module_area: str = Field(description="Module/Area")
+    title: str = Field(description="Test Case Title")
+    severity: str = Field(description="Severity (S0-S3)")
+    priority: str = Field(description="Priority (P1-P4)")
+    preconditions: str = Field(description="Preconditions")
+    test_steps: str = Field(description="Test Steps")
+    expected_result: str = Field(description="Expected Result")
+    actual_result: str = Field(description="Actual Result")
+    status: str = Field(description="Status (Pass/Fail/Blocked/Not Executed)")
+    screenshot: str = Field(description="Screenshot (placeholder)")
+    remarks: str = Field(description="Remarks")
     
     # Audit
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
