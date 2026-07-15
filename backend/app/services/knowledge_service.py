@@ -61,6 +61,26 @@ class KnowledgeService:
             file_path=str(file_path)
         )
 
+        # Extract text if it's a PDF
+        if file_path.suffix.lower() == ".pdf":
+            try:
+                import pypdf
+                with open(file_path, "rb") as f:
+                    reader = pypdf.PdfReader(f)
+                    text = ""
+                    for page in reader.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text += page_text + "\n"
+                
+                extracted_dir = knowledge_dir / "extracted"
+                extracted_dir.mkdir(exist_ok=True)
+                extracted_file_path = extracted_dir / f"{Path(filename).stem}.md"
+                with open(extracted_file_path, "w", encoding="utf-8") as f:
+                    f.write(text)
+            except Exception as e:
+                print(f"Error extracting PDF during upload: {e}")
+
         # Save metadata JSON
         doc_json_path = knowledge_dir / f"{doc_id}.json"
         with open(doc_json_path, "w") as f:
@@ -108,16 +128,11 @@ class KnowledgeService:
             return None
             
         if file_path.suffix.lower() == ".pdf":
-            try:
-                import fitz
-                with fitz.open(file_path) as pdf_doc:
-                    text = ""
-                    for page in pdf_doc:
-                        text += page.get_text()
-                    return text
-            except Exception as e:
-                print(f"Error reading PDF content: {e}")
-                return "[PDF content unreadable]"
+            extracted_file = self._get_knowledge_dir(project_id) / "extracted" / f"{file_path.stem}.md"
+            if extracted_file.exists():
+                with open(extracted_file, "r", encoding="utf-8") as f:
+                    return f.read()
+            return "[PDF content unreadable or not extracted]"
             
         try:
             with open(file_path, "r", encoding="utf-8") as f:

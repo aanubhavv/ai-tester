@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, UploadCloud, File, AlertCircle } from "lucide-react";
+import { X, UploadCloud, File, AlertCircle, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface UploadDocumentModalProps {
@@ -159,15 +159,15 @@ export default function UploadDocumentModal({ projectId }: UploadDocumentModalPr
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   type="submit"
                   disabled={isUploading}
-                  className="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                  className="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {isUploading ? (
                     <>
-                      <div className="animate-spin mr-2 h-4 w-4 border-2 border-white/20 border-t-white rounded-full" />
-                      Uploading...
+                      <Loader2 className="animate-spin h-4 w-4" />
+                      Extracting & Uploading...
                     </>
                   ) : "Upload"}
                 </button>
