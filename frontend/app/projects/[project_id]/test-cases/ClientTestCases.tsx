@@ -21,6 +21,11 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
   };
 
   const handleGenerate = async () => {
+    if (initialTestCases.length > 0) {
+      const confirmed = window.confirm("This action will delete your previously generated test cases. Do you want to still continue?");
+      if (!confirmed) return;
+    }
+
     try {
       const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/generate`, {
         method: "POST"
@@ -118,7 +123,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors shadow-sm shadow-blue-900/20 flex items-center gap-2"
           >
             <PlayCircle className="h-4 w-4" />
-            Generate Test Cases
+            {initialTestCases.length > 0 ? "Regenerate Test Cases" : "Generate Test Cases"}
           </button>
         </div>
       </div>
