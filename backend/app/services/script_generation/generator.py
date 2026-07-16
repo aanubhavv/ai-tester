@@ -83,6 +83,65 @@ class ScriptGenerationService:
             logger.error(f"Error generating script for {tc.tc_id}: {e}", exc_info=True)
             return None
 
+    async def improve_script(self, project_id: str, tc: TestCase, user_context: str, old_script: str) -> Optional[str]:
+        """
+        Runs the pipeline to improve a single test case script based on user context.
+        """
+        project = project_service.get_project(project_id)
+        if not project or not project.primary_url:
+            logger.error(f"Cannot improve script for {tc.tc_id}: Project missing primary_url")
+            return None
+            
+        base_url = project.primary_url
+        dom_context = ""
+        
+        try:
+            def _extract_and_improve():
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(headless=False)
+                    page = browser.new_page()
+                    try:
+                        page.goto(base_url, timeout=15000, wait_until="domcontentloaded")
+                        page.wait_for_timeout(2000)
+                        dom_context = page.evaluate("() => document.body.outerHTML")
+                        
+                        raw_script = ai_service.generate_text(
+                            task="script_generation/playwright_improvement",
+                            context_kwargs={
+                                "tc_id": tc.tc_id,
+                                "title": tc.title,
+                                "preconditions": tc.preconditions or "None",
+                                "test_steps": tc.test_steps,
+                                "expected_result": tc.expected_result,
+                                "base_url": base_url,
+                                "dom_context": dom_context,
+                                "user_context": user_context,
+                                "old_script": old_script
+                            },
+                            options=None,
+                            use_cache=False
+                        )
+                        return raw_script
+                    except Exception as e:
+                        logger.warning(f"Failed to improve script for {base_url}: {e}")
+                        return ""
+                    finally:
+                        browser.close()
+            
+            raw_script = await asyncio.to_thread(_extract_and_improve)
+            if not raw_script:
+                return None
+            
+            clean_script = raw_script.replace("```typescript", "").replace("```ts", "").replace("```", "").strip()
+            
+            self._save_script(project_id, tc.id, clean_script)
+            
+            return clean_script
+            
+        except Exception as e:
+            logger.error(f"Error improving script for {tc.tc_id}: {e}", exc_info=True)
+            return None
+
     def _save_script(self, project_id: str, tc_id: str, content: str):
         scripts_dir = PROJECTS_ROOT / project_id / "scripts" / "generated"
         scripts_dir.mkdir(parents=True, exist_ok=True)

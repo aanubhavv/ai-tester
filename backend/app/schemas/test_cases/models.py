@@ -84,6 +84,7 @@ class TestCase(BaseModel):
     last_execution_error: Optional[str] = Field(default=None, description="Error message from last failure")
     execution_logs: Optional[str] = Field(default=None, description="Playwright console output")
     script_metadata: Optional[dict] = Field(default=None, description="Metadata about script generation")
+    improvement_context: Optional[str] = Field(default=None, description="User provided context to improve the script")
 
     # Audit
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())

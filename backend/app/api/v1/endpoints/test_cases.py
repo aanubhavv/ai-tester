@@ -108,11 +108,38 @@ def update_test_case(project_id: str, test_id: str, updates: dict) -> Any:
 class ScriptUpdateRequest(BaseModel):
     script: str
 
+class ImproveScriptRequest(BaseModel):
+    context: str
+    old_script: str
+
 @router.put("/{project_id}/test-cases/{test_id}/script")
 def update_script(project_id: str, test_id: str, req: ScriptUpdateRequest) -> Any:
     _update_tc_internal(project_id, test_id, {"script": req.script})
     script_generator._save_script(project_id, test_id, req.script)
     return {"message": "Script updated successfully"}
+
+@router.post("/{project_id}/test-cases/{test_id}/scripts/improve")
+async def improve_script(project_id: str, test_id: str, req: ImproveScriptRequest) -> Any:
+    tests = generation_service.get_test_cases(project_id)
+    tc = next((t for t in tests if t.id == test_id), None)
+    if not tc:
+        raise HTTPException(status_code=404, detail="Test case not found.")
+        
+    _update_tc_internal(project_id, test_id, {"improvement_context": req.context})
+    
+    script_content = await script_generator.improve_script(project_id, tc, req.context, req.old_script)
+    
+    if script_content:
+        _update_tc_internal(project_id, test_id, {
+            "script": script_content,
+            "script_metadata": {
+                "generated_at": datetime.utcnow().isoformat(),
+                "improved": True
+            }
+        })
+        return {"script": script_content}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to improve script.")
 
 @router.post("/{project_id}/test-cases/{test_id}/approve", response_model=TestCase)
 def approve_test_case(project_id: str, test_id: str) -> Any:

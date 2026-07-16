@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Download, Beaker, PlayCircle, Eye, Edit2, Check, X, CheckCircle2, AlertCircle, Circle, FileText, Save, Edit, Terminal, Copy, Undo2, ImageIcon, Minimize2, Maximize2, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
+import { Download, Beaker, PlayCircle, Eye, Edit2, Check, X, CheckCircle2, AlertCircle, Circle, FileText, Save, Edit, Terminal, Copy, Undo2, ImageIcon, Minimize2, Maximize2, ZoomIn, ZoomOut, RotateCcw, Sparkles } from "lucide-react";
 import { useToast } from "@/components/ui/ToastProvider";
 import { useConfirm } from "@/components/ui/ConfirmProvider";
 import { useRouter } from "next/navigation";
@@ -24,6 +24,9 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
   const [scriptViewerCase, setScriptViewerCase] = useState<any | null>(null);
   const [isEditingScript, setIsEditingScript] = useState(false);
   const [editedScript, setEditedScript] = useState("");
+  const [isImprovingScript, setIsImprovingScript] = useState(false);
+  const [improveContext, setImproveContext] = useState("");
+  const [showImproveInput, setShowImproveInput] = useState(false);
   const [isScreenshotExpanded, setIsScreenshotExpanded] = useState(false);
   const [zoom, setZoom] = useState(1);
 
@@ -73,6 +76,33 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
       router.refresh();
     } catch (e) {
       error("Failed to update script.");
+    }
+  };
+
+  const handleImproveScript = async () => {
+    if (!scriptViewerCase || !improveContext.trim()) return;
+    setIsImprovingScript(true);
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/${scriptViewerCase.id}/scripts/improve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          context: improveContext,
+          old_script: scriptViewerCase.script || ""
+        }),
+      });
+      if (!response.ok) throw new Error("Failed to improve script");
+      
+      const data = await response.json();
+      setScriptViewerCase({ ...scriptViewerCase, script: data.script });
+      setImproveContext("");
+      setShowImproveInput(false);
+      success("Script improved successfully.");
+      router.refresh();
+    } catch (e) {
+      error("Failed to improve script.");
+    } finally {
+      setIsImprovingScript(false);
     }
   };
 
@@ -767,17 +797,27 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
       {scriptViewerCase && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 sm:p-6">
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-4xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/50">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-zinc-800 border border-zinc-700">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/50 gap-4">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-zinc-800 border border-zinc-700 flex-shrink-0">
                   <PlayCircle className="h-4 w-4 text-purple-400" />
                 </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-zinc-100">Playwright Script</h3>
-                  <p className="text-xs text-zinc-500">{scriptViewerCase.tc_id} • {scriptViewerCase.title}</p>
+                <div className="min-w-0">
+                  <h3 className="text-lg font-semibold text-zinc-100 truncate">Playwright Script</h3>
+                  <p className="text-xs text-zinc-500 truncate" title={`${scriptViewerCase.tc_id} • ${scriptViewerCase.title}`}>
+                    {scriptViewerCase.tc_id} • {scriptViewerCase.title}
+                  </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button 
+                  onClick={() => setShowImproveInput(!showImproveInput)}
+                  className="px-3 py-1.5 rounded-md bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:from-indigo-600 hover:via-purple-600 hover:to-pink-600 text-white text-sm font-medium transition-all shadow-md shadow-purple-500/20 flex items-center gap-1.5"
+                  title="Improve with AI"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  <span>Improve with AI</span>
+                </button>
                 <button 
                   onClick={handleCopyScript}
                   className="p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-md transition-colors"
@@ -812,7 +852,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                   </button>
                 )}
                 <button 
-                  onClick={() => { setScriptViewerCase(null); setIsEditingScript(false); }}
+                  onClick={() => { setScriptViewerCase(null); setIsEditingScript(false); setShowImproveInput(false); }}
                   className="p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-md transition-colors"
                   title="Close"
                 >
@@ -821,8 +861,38 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
               </div>
             </div>
             
+            {showImproveInput && (
+              <div className="px-6 py-3 bg-indigo-950/20 border-b border-indigo-900/30 flex gap-3 items-center">
+                <Sparkles className="h-4 w-4 text-purple-400 flex-shrink-0" />
+                <input 
+                  type="text"
+                  value={improveContext}
+                  onChange={(e) => setImproveContext(e.target.value)}
+                  placeholder="Tell AI how to improve this script (e.g. 'Use standard test data instead of generic strings')"
+                  className="flex-1 bg-transparent border-none focus:outline-none text-sm text-zinc-200 placeholder:text-zinc-500"
+                  disabled={isImprovingScript}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleImproveScript();
+                  }}
+                />
+                <button 
+                  onClick={handleImproveScript}
+                  disabled={isImprovingScript || !improveContext.trim()}
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-xs font-medium transition-colors disabled:opacity-50 whitespace-nowrap"
+                >
+                  {isImprovingScript ? "Improving..." : "Apply"}
+                </button>
+              </div>
+            )}
+            
             <div className="p-6 bg-zinc-950 max-h-[70vh] overflow-y-auto w-full">
-              <div className="rounded-lg overflow-hidden border border-zinc-700">
+              <div className="rounded-lg overflow-hidden border border-zinc-700 relative">
+                {isImprovingScript && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-2"></div>
+                    <span className="text-sm font-medium text-blue-400">Regenerating script...</span>
+                  </div>
+                )}
                 {isEditingScript ? (
                   <CodeEditor
                     value={editedScript}
