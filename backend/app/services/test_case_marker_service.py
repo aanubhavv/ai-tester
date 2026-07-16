@@ -90,13 +90,20 @@ class TestCaseMarkerService:
                 img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                 
                 if img is not None:
-                    x = int(ai_result.get("x", 0))
-                    y = int(ai_result.get("y", 0))
-                    w = int(ai_result.get("width", 0))
-                    h = int(ai_result.get("height", 0))
+                    elements = ai_result.get("elements", [])
                     
-                    # Draw a red rectangle (BGR: 0, 0, 255) with thickness 3
-                    cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), 3)
+                    # For backward compatibility with older AI responses or missing elements list
+                    if not elements and "x" in ai_result:
+                        elements = [ai_result]
+                        
+                    for elem in elements:
+                        x = int(elem.get("x", 0))
+                        y = int(elem.get("y", 0))
+                        w = int(elem.get("width", 0))
+                        h = int(elem.get("height", 0))
+                        
+                        # Draw a red rectangle (BGR: 0, 0, 255) with thickness 3
+                        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), 3)
                     
                     # Encode image back to bytes
                     success, encoded_img = cv2.imencode('.png', img)
