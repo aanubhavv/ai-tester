@@ -153,7 +153,9 @@ async def _generation_job(project_id: str, tc_id: str):
             }
         })
     else:
-        _update_tc_internal(project_id, tc_id, {"script_status": "Failed"})
+        # If we failed but already had a script, just revert to Generated
+        fallback_status = "Generated" if tc.script else "Failed"
+        _update_tc_internal(project_id, tc_id, {"script_status": fallback_status})
 
 async def _execution_job(project_id: str, tc_id: str):
     _update_tc_internal(project_id, tc_id, {"execution_status": "Running"})
@@ -216,6 +218,20 @@ async def bulk_stop_execution(project_id: str, req: BulkActionRequest) -> Any:
     for tc_id in req.test_case_ids:
         # We can cancel via PlaywrightExecutionService
         PlaywrightExecutionService.cancel_execution(project_id, tc_id)
+        
+        # Also cancel any queued or running jobs in the background queue
+        execution_queue.cancel_job(f"exe_{tc_id}")
+        execution_queue.cancel_job(f"gen_{tc_id}")
+        
         # Update the status to Stopped
-        _update_tc_internal(project_id, tc_id, {"execution_status": "Stopped", "last_execution_error": "Execution stopped by user."})
-    return {"message": f"Stopped {len(req.test_case_ids)} script execution jobs"}
+        # If we stopped a generation job, revert to Generated if script exists, else Failed
+        tc_list = generation_service.get_test_cases(project_id)
+        tc = next((t for t in tc_list if t.id == tc_id), None)
+        script_status_fallback = "Generated" if (tc and tc.script) else "Failed"
+        
+        _update_tc_internal(project_id, tc_id, {
+            "execution_status": "Stopped", 
+            "script_status": script_status_fallback,
+            "last_execution_error": "Stopped by user."
+        })
+    return {"message": f"Stopped {len(req.test_case_ids)} tasks"}

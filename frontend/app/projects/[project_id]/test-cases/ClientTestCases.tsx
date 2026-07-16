@@ -223,24 +223,6 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                 <PlayCircle className="h-4 w-4" />
                 Execute Selected
               </button>
-              <button 
-                onClick={async () => {
-                  try {
-                    await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/scripts/stop`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ test_case_ids: selectedTestIds })
-                    });
-                    success("Sent stop signal!");
-                    setSelectedTestIds([]);
-                    router.refresh();
-                  } catch(e) { error("Failed to send stop signal."); }
-                }}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors shadow-sm shadow-red-900/20 flex items-center gap-2"
-              >
-                <X className="h-4 w-4" />
-                Stop Execution
-              </button>
             </>
           )}
           <button 
@@ -334,6 +316,32 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                         `}>
                           {tc.script_status || 'Not Generated'}
                         </span>
+                        {tc.script_status === 'Generating' && (
+                          <button 
+                            onClick={async () => {
+                              const confirmed = await confirm({
+                                title: "Stop Generation?",
+                                message: "Are you sure you want to stop generating this script?",
+                                confirmText: "Yes, Stop"
+                              });
+                              if (confirmed) {
+                                try {
+                                  await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/scripts/stop`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ test_case_ids: [tc.id] })
+                                  });
+                                  success("Stopped generation.");
+                                  router.refresh();
+                                } catch (e) { error("Failed to stop generation."); }
+                              }
+                            }}
+                            className="p-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+                            title="Stop Generation"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -347,6 +355,32 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                         `}>
                           {tc.execution_status || 'Not Executed'}
                         </span>
+                        {tc.execution_status === 'Running' && (
+                          <button 
+                            onClick={async () => {
+                              const confirmed = await confirm({
+                                title: "Stop Execution?",
+                                message: "Are you sure you want to stop this execution?",
+                                confirmText: "Yes, Stop"
+                              });
+                              if (confirmed) {
+                                try {
+                                  await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/scripts/stop`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ test_case_ids: [tc.id] })
+                                  });
+                                  success("Stopped execution.");
+                                  router.refresh();
+                                } catch (e) { error("Failed to stop execution."); }
+                              }
+                            }}
+                            className="p-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+                            title="Stop Execution"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3">
