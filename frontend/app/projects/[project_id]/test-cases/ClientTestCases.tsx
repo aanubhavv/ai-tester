@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Download, Beaker, PlayCircle, Eye, Edit2, Check, X, CheckCircle2, AlertCircle, Circle, FileText, Save, Edit } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Download, Beaker, PlayCircle, Eye, Edit2, Check, X, CheckCircle2, AlertCircle, Circle, FileText, Save, Edit, Terminal } from "lucide-react";
 import { useToast } from "@/components/ui/ToastProvider";
 import { useConfirm } from "@/components/ui/ConfirmProvider";
 import { useRouter } from "next/navigation";
@@ -14,6 +14,37 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
   const [isEditing, setIsEditing] = useState(false);
   const [editedCase, setEditedCase] = useState<any | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedTestIds, setSelectedTestIds] = useState<string[]>([]);
+  const [scriptViewerCase, setScriptViewerCase] = useState<any | null>(null);
+
+  useEffect(() => {
+    // Poll for updates if any scripts are generating or queued
+    const hasActiveJobs = initialTestCases.some(tc => 
+      ['Queued', 'Generating'].includes(tc.script_status) || 
+      ['Queued', 'Preparing', 'Running'].includes(tc.execution_status)
+    );
+
+    if (hasActiveJobs) {
+      const interval = setInterval(() => {
+        router.refresh();
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [initialTestCases, router]);
+
+  const toggleSelectAll = () => {
+    if (selectedTestIds.length === initialTestCases.length) {
+      setSelectedTestIds([]);
+    } else {
+      setSelectedTestIds(initialTestCases.map(tc => tc.id));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedTestIds(prev => 
+      prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
+    );
+  };
 
   const getStatusIcon = (status: string) => {
     if (!status) return <Circle className="h-4 w-4 text-zinc-500" />;
@@ -155,12 +186,69 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
             <Download className="h-4 w-4" />
             Export to Excel
           </button>
+          {selectedTestIds.length > 0 && (
+            <>
+              <button 
+                onClick={async () => {
+                  try {
+                    await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/scripts/generate`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ test_case_ids: selectedTestIds })
+                    });
+                    success("Script generation queued!");
+                    setSelectedTestIds([]);
+                    router.refresh();
+                  } catch(e) { error("Failed to queue generation."); }
+                }}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-sm font-medium transition-colors shadow-sm shadow-purple-900/20 flex items-center gap-2"
+              >
+                Generate Scripts
+              </button>
+              <button 
+                onClick={async () => {
+                  try {
+                    await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/scripts/execute`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ test_case_ids: selectedTestIds })
+                    });
+                    success("Script execution queued!");
+                    setSelectedTestIds([]);
+                    router.refresh();
+                  } catch(e) { error("Failed to queue execution."); }
+                }}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-sm font-medium transition-colors shadow-sm shadow-emerald-900/20 flex items-center gap-2"
+              >
+                <PlayCircle className="h-4 w-4" />
+                Execute Selected
+              </button>
+              <button 
+                onClick={async () => {
+                  try {
+                    await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/scripts/stop`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ test_case_ids: selectedTestIds })
+                    });
+                    success("Sent stop signal!");
+                    setSelectedTestIds([]);
+                    router.refresh();
+                  } catch(e) { error("Failed to send stop signal."); }
+                }}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors shadow-sm shadow-red-900/20 flex items-center gap-2"
+              >
+                <X className="h-4 w-4" />
+                Stop Execution
+              </button>
+            </>
+          )}
           <button 
             onClick={handleGenerate}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors shadow-sm shadow-blue-900/20 flex items-center gap-2"
           >
-            <PlayCircle className="h-4 w-4" />
-            {initialTestCases.length > 0 ? "Regenerate Test Cases" : "Generate Test Cases"}
+            <Beaker className="h-4 w-4" />
+            {initialTestCases.length > 0 ? "Regenerate Base Tests" : "Generate Test Cases"}
           </button>
         </div>
       </div>
@@ -181,31 +269,45 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
             <table className="min-w-full divide-y divide-zinc-800 text-left text-sm whitespace-nowrap">
               <thead className="bg-zinc-900/80 sticky top-0 z-10">
                 <tr>
+                  <th className="px-4 py-3 text-center">
+                    <input 
+                      type="checkbox" 
+                      checked={initialTestCases.length > 0 && selectedTestIds.length === initialTestCases.length}
+                      onChange={toggleSelectAll}
+                      className="rounded border-zinc-700 bg-zinc-800 text-blue-600 focus:ring-blue-500/20"
+                    />
+                  </th>
                   <th className="px-4 py-3 font-semibold text-zinc-300">TC ID</th>
                   <th className="px-4 py-3 font-semibold text-zinc-300">Type</th>
-                  <th className="px-4 py-3 font-semibold text-zinc-300">Module/Area</th>
                   <th className="px-4 py-3 font-semibold text-zinc-300">Title</th>
                   <th className="px-4 py-3 font-semibold text-zinc-300">Severity</th>
-                  <th className="px-4 py-3 font-semibold text-zinc-300">Priority</th>
-                  <th className="px-4 py-3 font-semibold text-zinc-300">Status</th>
+                  <th className="px-4 py-3 font-semibold text-zinc-300">Test Status</th>
+                  <th className="px-4 py-3 font-semibold text-zinc-300">Script Status</th>
+                  <th className="px-4 py-3 font-semibold text-zinc-300">Execution</th>
                   <th className="px-4 py-3 font-semibold text-zinc-300">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/50">
                 {initialTestCases.map((tc) => (
-                  <tr key={tc.id} className="hover:bg-zinc-900/30 transition-colors">
+                  <tr key={tc.id} className={`hover:bg-zinc-900/30 transition-colors ${selectedTestIds.includes(tc.id) ? 'bg-zinc-900/50' : ''}`}>
+                    <td className="px-4 py-3 text-center">
+                      <input 
+                        type="checkbox" 
+                        checked={selectedTestIds.includes(tc.id)}
+                        onChange={() => toggleSelect(tc.id)}
+                        className="rounded border-zinc-700 bg-zinc-800 text-blue-600 focus:ring-blue-500/20"
+                      />
+                    </td>
                     <td className="px-4 py-3 font-medium text-zinc-300">{tc.tc_id}</td>
                     <td className="px-4 py-3 text-zinc-400">
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700">
                         {tc.test_type}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-zinc-400">{tc.module_area}</td>
                     <td className="px-4 py-3 text-zinc-200 font-medium truncate max-w-[200px]" title={tc.title}>
                       {tc.title}
                     </td>
                     <td className="px-4 py-3 text-zinc-400">{tc.severity}</td>
-                    <td className="px-4 py-3 text-zinc-400">{tc.priority}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         {getStatusIcon(tc.status)}
@@ -222,12 +324,48 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <button 
-                        onClick={() => setSelectedCase(tc)}
-                        className="text-blue-400 hover:text-blue-300 font-medium text-sm transition-colors"
-                      >
-                        View Details
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border
+                          ${tc.script_status === 'Generated' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                            tc.script_status === 'Generating' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse' :
+                            tc.script_status === 'Failed' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                            'bg-zinc-800 text-zinc-400 border-zinc-700'
+                          }
+                        `}>
+                          {tc.script_status || 'Not Generated'}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border
+                          ${tc.execution_status === 'Passed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                            tc.execution_status === 'Failed' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                            tc.execution_status === 'Running' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20 animate-pulse' :
+                            'bg-zinc-800 text-zinc-400 border-zinc-700'
+                          }
+                        `}>
+                          {tc.execution_status || 'Not Executed'}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <button 
+                          onClick={() => setSelectedCase(tc)}
+                          className="text-blue-400 hover:text-blue-300 font-medium text-sm transition-colors"
+                        >
+                          Details
+                        </button>
+                        {tc.script_status === 'Generated' && (
+                          <button 
+                            onClick={() => setScriptViewerCase(tc)}
+                            className="text-purple-400 hover:text-purple-300 font-medium text-sm transition-colors"
+                          >
+                            Script
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -370,6 +508,34 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                       )}
                     </div>
                   </div>
+                  
+                  {/* Execution Results Section */}
+                  {(selectedCase.last_execution_error || selectedCase.execution_logs) && (
+                    <div className="mt-8 border-t border-zinc-800/50 pt-6">
+                      <h3 className="text-base font-semibold text-zinc-100 flex items-center gap-2 mb-4">
+                        <Terminal className="h-4 w-4 text-zinc-400" />
+                        Execution Output
+                      </h3>
+                      <div className="space-y-4">
+                        {selectedCase.last_execution_error && (
+                          <div>
+                            <h4 className="text-sm font-semibold text-red-400 mb-2 uppercase tracking-wider">Error Message</h4>
+                            <div className="bg-red-950/20 p-4 rounded-lg border border-red-900/30 text-sm text-red-200 font-mono whitespace-pre-wrap overflow-x-auto">
+                              {selectedCase.last_execution_error}
+                            </div>
+                          </div>
+                        )}
+                        {selectedCase.execution_logs && (
+                          <div>
+                            <h4 className="text-sm font-semibold text-zinc-400 mb-2 uppercase tracking-wider">Console Logs</h4>
+                            <div className="bg-[#0d1117] p-4 rounded-lg border border-zinc-800 text-xs text-zinc-300 font-mono whitespace-pre-wrap overflow-x-auto max-h-[300px] overflow-y-auto">
+                              {selectedCase.execution_logs}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
                 {/* Sidebar */}
@@ -453,6 +619,49 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                 </div>
 
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Script Viewer Modal */}
+      {scriptViewerCase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 sm:p-6">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-4xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/50">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-zinc-800 border border-zinc-700">
+                  <PlayCircle className="h-4 w-4 text-purple-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-zinc-100">Playwright Script</h3>
+                  <p className="text-xs text-zinc-500">{scriptViewerCase.tc_id} • {scriptViewerCase.title}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setScriptViewerCase(null)}
+                className="p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-md transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 bg-zinc-950 max-h-[70vh] overflow-y-auto">
+              <pre className="bg-[#0d1117] text-zinc-300 p-4 rounded-lg text-sm font-mono overflow-x-auto whitespace-pre-wrap border border-zinc-800">
+                <code>{scriptViewerCase.script || '// No script generated yet.'}</code>
+              </pre>
+            </div>
+            
+            <div className="flex justify-between items-center px-6 py-4 border-t border-zinc-800 bg-zinc-900/30">
+              <div className="text-xs text-zinc-500">
+                {scriptViewerCase.script_metadata?.generated_at ? `Generated at: ${new Date(scriptViewerCase.script_metadata.generated_at).toLocaleString()}` : ''}
+              </div>
+              <button 
+                onClick={() => setScriptViewerCase(null)}
+                className="px-5 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded-md text-sm font-medium transition-colors"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

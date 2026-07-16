@@ -8,6 +8,7 @@ from app.core.logging import setup_logging
 from app.core.exceptions import global_exception_handler
 from app.api.v1.router import api_router
 from app.api.v1.endpoints.root import router as root_router
+from app.services.execution.queue import execution_queue
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +16,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     setup_logging()
     logger.info(f"Starting {settings.app_name} in {settings.app_env} environment...")
+    await execution_queue.start()
     yield
     logger.info(f"Shutting down {settings.app_name}...")
+    await execution_queue.stop()
 
 app = FastAPI(
     title=settings.app_name,

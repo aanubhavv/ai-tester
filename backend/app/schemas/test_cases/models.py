@@ -75,6 +75,16 @@ class TestCase(BaseModel):
     screenshot: str = Field(description="Screenshot (placeholder)")
     remarks: str = Field(description="Remarks")
     
+    # Script & Execution
+    script: Optional[str] = Field(default=None, description="Generated Playwright script")
+    script_status: str = Field(default="Not Generated", description="Not Generated, Generating, Generated, Failed, Outdated, Regenerating")
+    execution_status: str = Field(default="Not Executed", description="Not Executed, Queued, Preparing, Running, Passed, Failed, Skipped")
+    last_execution_time: Optional[float] = Field(default=None, description="Execution duration in seconds")
+    last_execution_timestamp: Optional[str] = Field(default=None, description="ISO timestamp of last execution")
+    last_execution_error: Optional[str] = Field(default=None, description="Error message from last failure")
+    execution_logs: Optional[str] = Field(default=None, description="Playwright console output")
+    script_metadata: Optional[dict] = Field(default=None, description="Metadata about script generation")
+
     # Audit
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())

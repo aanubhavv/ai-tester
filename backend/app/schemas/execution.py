@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, Any
+from typing import Optional, Any, List
 from pydantic import BaseModel
 from app.models.execution_models import ExecutionType, ExecutionStatus
 
@@ -20,3 +20,6 @@ class ExecutionResponse(BaseModel):
 class ExecutionListResponse(BaseModel):
     executions: list[ExecutionResponse]
     total: int
+
+class BulkActionRequest(BaseModel):
+    test_case_ids: List[str]

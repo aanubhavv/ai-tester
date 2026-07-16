@@ -18,7 +18,10 @@ class PromptManager:
         Loads a prompt template (e.g. prompts/planning/feature_extraction.md)
         and formats it with the provided kwargs.
         """
-        prompt_path = self.prompts_dir / group / f"{task_name}.md"
+        if "/" in task_name:
+            prompt_path = self.prompts_dir / f"{task_name}.md"
+        else:
+            prompt_path = self.prompts_dir / group / f"{task_name}.md"
         
         if not prompt_path.exists():
             # Fallback for when the file isn't created yet, mostly for resilience during development
@@ -27,13 +30,12 @@ class PromptManager:
         with open(prompt_path, "r", encoding="utf-8") as f:
             template = f.read()
             
-        # Replace the user's {{var}} syntax with {var} for str.format
-        template = template.replace("{{", "{").replace("}}", "}")
-        
-        # Format the template with injected variables
-        try:
-            return template.format(**kwargs)
-        except KeyError as e:
-            raise ValueError(f"Missing required context variable {e} for prompt {task_name}")
+        # Safe replacement for both {var} and {{var}} syntaxes
+        # This avoids KeyErrors when the template contains code blocks with { } like JS/TS.
+        for key, value in kwargs.items():
+            template = template.replace(f"{{{{{key}}}}}", str(value))
+            template = template.replace(f"{{{key}}}", str(value))
+            
+        return template
 
 prompt_manager = PromptManager()

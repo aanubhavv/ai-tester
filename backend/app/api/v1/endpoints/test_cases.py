@@ -13,6 +13,11 @@ from app.schemas.test_cases.models import TestCase, TestCaseStatus, CoverageRepo
 from app.schemas.planning.requirements import StructuredRequirements
 from app.schemas.planning.features import FeatureExtractionResult
 from app.schemas.planning.strategy import SuiteGenerationResult
+from app.schemas.execution import BulkActionRequest
+from app.services.execution.queue import execution_queue
+from app.services.script_generation.generator import script_generator
+from app.services.playwright_execution.runner import execution_runner, PlaywrightExecutionService
+from datetime import datetime
 
 router = APIRouter()
 
@@ -108,10 +113,90 @@ def export_xlsx(project_id: str) -> Any:
     xlsx_path = tests_dir / "test_cases.xlsx"
     
     if not xlsx_path.exists():
-        raise HTTPException(status_code=404, detail="Excel export not found.")
+        raise HTTPException(status_code=404, detail="No exported test cases found.")
         
-    return FileResponse(
-        path=str(xlsx_path),
-        filename="test_cases.xlsx",
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    return FileResponse(path=xlsx_path, filename=f"test_cases_{project_id}.xlsx")
+
+def _update_tc_internal(project_id: str, tc_id: str, updates: dict):
+    tests = generation_service.get_test_cases(project_id)
+    target = next((t for t in tests if t.id == tc_id), None)
+    if not target:
+        return
+    
+    target_dict = target.model_dump()
+    target_dict.update(updates)
+    updated_test = TestCase(**target_dict)
+    
+    new_list = [updated_test if t.id == tc_id else t for t in tests]
+    generation_service.save_test_cases(project_id, new_list)
+
+async def _generation_job(project_id: str, tc_id: str):
+    # Set status to Generating
+    _update_tc_internal(project_id, tc_id, {"script_status": "Generating"})
+    
+    # Get test case
+    tests = generation_service.get_test_cases(project_id)
+    tc = next((t for t in tests if t.id == tc_id), None)
+    if not tc: return
+    
+    # Generate
+    script_content = await script_generator.generate_script(project_id, tc)
+    
+    if script_content:
+        _update_tc_internal(project_id, tc_id, {
+            "script_status": "Generated",
+            "script": script_content,
+            "script_metadata": {
+                "generated_at": datetime.utcnow().isoformat()
+            }
+        })
+    else:
+        _update_tc_internal(project_id, tc_id, {"script_status": "Failed"})
+
+async def _execution_job(project_id: str, tc_id: str):
+    _update_tc_internal(project_id, tc_id, {"execution_status": "Running"})
+    
+    tests = generation_service.get_test_cases(project_id)
+    tc = next((t for t in tests if t.id == tc_id), None)
+    if not tc: return
+    
+    result = await execution_runner.execute_script(project_id, tc)
+    
+    _update_tc_internal(project_id, tc_id, {
+        "execution_status": result["status"],
+        "last_execution_time": result["duration"],
+        "last_execution_error": result["error"],
+        "execution_logs": result["logs"],
+        "last_execution_timestamp": datetime.utcnow().isoformat()
+    })
+
+@router.post("/{project_id}/test-cases/scripts/generate")
+async def bulk_generate_scripts(project_id: str, req: BulkActionRequest) -> Any:
+    for tc_id in req.test_case_ids:
+        _update_tc_internal(project_id, tc_id, {"script_status": "Queued"})
+        execution_queue.enqueue(
+            job_id=f"gen_{tc_id}",
+            job_type="generate",
+            coro=_generation_job(project_id, tc_id)
+        )
+    return {"message": f"Queued {len(req.test_case_ids)} script generation jobs"}
+
+@router.post("/{project_id}/test-cases/scripts/execute")
+async def bulk_execute_scripts(project_id: str, req: BulkActionRequest) -> Any:
+    for tc_id in req.test_case_ids:
+        _update_tc_internal(project_id, tc_id, {"execution_status": "Queued"})
+        execution_queue.enqueue(
+            job_id=f"exe_{tc_id}",
+            job_type="execute",
+            coro=_execution_job(project_id, tc_id)
+        )
+    return {"message": f"Queued {len(req.test_case_ids)} script execution jobs"}
+
+@router.post("/{project_id}/test-cases/scripts/stop")
+async def bulk_stop_execution(project_id: str, req: BulkActionRequest) -> Any:
+    for tc_id in req.test_case_ids:
+        # We can cancel via PlaywrightExecutionService
+        PlaywrightExecutionService.cancel_execution(project_id, tc_id)
+        # Update the status to Stopped
+        _update_tc_internal(project_id, tc_id, {"execution_status": "Stopped", "last_execution_error": "Execution stopped by user."})
+    return {"message": f"Stopped {len(req.test_case_ids)} script execution jobs"}

@@ -137,6 +137,12 @@ class GenerationService:
         if 'id' in df.columns:
             df.drop(columns=['id', 'created_at', 'updated_at'], inplace=True, errors='ignore')
             
+        # Strip ANSI codes and unprintable characters from all string columns to prevent openpyxl crash
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        control_chars = re.compile(r'[\x00-\x08\x0b-\x0c\x0e-\x1f]')
+        for col in df.select_dtypes(include=['object']):
+            df[col] = df[col].apply(lambda x: control_chars.sub('', ansi_escape.sub('', str(x))) if pd.notnull(x) else x)
+            
         df.to_excel(str(xlsx_path), index=False)
 
     def get_test_cases(self, project_id: str) -> List[TestCase]:
