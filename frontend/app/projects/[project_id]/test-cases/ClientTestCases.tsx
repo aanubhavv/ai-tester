@@ -1,12 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Download, Beaker, PlayCircle, Eye, Edit2, Check, X, CheckCircle2, AlertCircle, Circle, FileText, Save, Edit, Terminal } from "lucide-react";
+import { Download, Beaker, PlayCircle, Eye, Edit2, Check, X, CheckCircle2, AlertCircle, Circle, FileText, Save, Edit, Terminal, Copy, Undo2 } from "lucide-react";
 import { useToast } from "@/components/ui/ToastProvider";
 import { useConfirm } from "@/components/ui/ConfirmProvider";
 import { useRouter } from "next/navigation";
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import dynamic from 'next/dynamic';
+
+const CodeEditor = dynamic(
+  () => import('@uiw/react-textarea-code-editor').then((mod) => mod.default),
+  { ssr: false }
+);
 
 export default function ClientTestCases({ initialTestCases, projectId }: { initialTestCases: any[], projectId: string }) {
   const router = useRouter();
@@ -18,6 +22,8 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
   const [isSaving, setIsSaving] = useState(false);
   const [selectedTestIds, setSelectedTestIds] = useState<string[]>([]);
   const [scriptViewerCase, setScriptViewerCase] = useState<any | null>(null);
+  const [isEditingScript, setIsEditingScript] = useState(false);
+  const [editedScript, setEditedScript] = useState("");
 
   useEffect(() => {
     // Poll for updates if any scripts are generating or queued
@@ -39,6 +45,32 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
       setSelectedTestIds([]);
     } else {
       setSelectedTestIds(initialTestCases.map(tc => tc.id));
+    }
+  };
+
+  const handleCopyScript = () => {
+    if (scriptViewerCase?.script) {
+      navigator.clipboard.writeText(scriptViewerCase.script);
+      success("Script copied to clipboard.");
+    }
+  };
+
+  const handleSaveScript = async () => {
+    if (!scriptViewerCase) return;
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/${scriptViewerCase.id}/script`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script: editedScript }),
+      });
+      if (!response.ok) throw new Error("Failed to update script");
+      
+      setScriptViewerCase({ ...scriptViewerCase, script: editedScript });
+      setIsEditingScript(false);
+      success("Script updated successfully.");
+      router.refresh();
+    } catch (e) {
+      error("Failed to update script.");
     }
   };
 
@@ -674,28 +706,81 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                   <p className="text-xs text-zinc-500">{scriptViewerCase.tc_id} • {scriptViewerCase.title}</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setScriptViewerCase(null)}
-                className="p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-md transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={handleCopyScript}
+                  className="p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-md transition-colors"
+                  title="Copy Script"
+                >
+                  <Copy className="h-5 w-5" />
+                </button>
+                {isEditingScript ? (
+                  <>
+                    <button 
+                      onClick={() => setIsEditingScript(false)}
+                      className="p-2 text-red-400 hover:text-red-300 hover:bg-zinc-800 rounded-md transition-colors"
+                      title="Cancel Edit"
+                    >
+                      <Undo2 className="h-5 w-5" />
+                    </button>
+                    <button 
+                      onClick={handleSaveScript}
+                      className="p-2 text-green-400 hover:text-green-300 hover:bg-zinc-800 rounded-md transition-colors"
+                      title="Save Script"
+                    >
+                      <Save className="h-5 w-5" />
+                    </button>
+                  </>
+                ) : (
+                  <button 
+                    onClick={() => { setIsEditingScript(true); setEditedScript(scriptViewerCase.script || ""); }}
+                    className="p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-md transition-colors"
+                    title="Edit Script"
+                  >
+                    <Edit2 className="h-5 w-5" />
+                  </button>
+                )}
+                <button 
+                  onClick={() => { setScriptViewerCase(null); setIsEditingScript(false); }}
+                  className="p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-md transition-colors"
+                  title="Close"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
             
             <div className="p-6 bg-zinc-950 max-h-[70vh] overflow-y-auto w-full">
-              <SyntaxHighlighter
-                language="typescript"
-                style={vscDarkPlus}
-                customStyle={{
-                  margin: 0,
-                  borderRadius: '0.5rem',
-                  fontSize: '0.875rem',
-                  backgroundColor: '#0d1117',
-                  border: '1px solid #27272a'
-                }}
-              >
-                {scriptViewerCase.script || '// No script generated yet.'}
-              </SyntaxHighlighter>
+              <div className="rounded-lg overflow-hidden border border-zinc-700">
+                {isEditingScript ? (
+                  <CodeEditor
+                    value={editedScript}
+                    language="typescript"
+                    placeholder="Please enter TS code."
+                    onChange={(evn) => setEditedScript(evn.target.value)}
+                    padding={20}
+                    style={{
+                      fontSize: '0.875rem',
+                      backgroundColor: '#0d1117',
+                      fontFamily: 'ui-monospace,SFMono-Regular,SF Mono,Consolas,Liberation Mono,Menlo,monospace',
+                      minHeight: '500px'
+                    }}
+                  />
+                ) : (
+                  <CodeEditor
+                    value={scriptViewerCase.script || '// No script generated yet.'}
+                    language="typescript"
+                    readOnly={true}
+                    padding={20}
+                    style={{
+                      fontSize: '0.875rem',
+                      backgroundColor: '#0d1117',
+                      fontFamily: 'ui-monospace,SFMono-Regular,SF Mono,Consolas,Liberation Mono,Menlo,monospace',
+                      minHeight: '500px'
+                    }}
+                  />
+                )}
+              </div>
             </div>
             
             <div className="flex justify-between items-center px-6 py-4 border-t border-zinc-800 bg-zinc-900/30">

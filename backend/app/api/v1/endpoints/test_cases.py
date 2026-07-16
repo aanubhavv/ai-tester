@@ -102,6 +102,15 @@ def update_test_case(project_id: str, test_id: str, updates: dict) -> Any:
         
     return updated_test
 
+class ScriptUpdateRequest(BaseModel):
+    script: str
+
+@router.put("/{project_id}/test-cases/{test_id}/script")
+def update_script(project_id: str, test_id: str, req: ScriptUpdateRequest) -> Any:
+    _update_tc_internal(project_id, test_id, {"script": req.script})
+    script_generator._save_script(project_id, test_id, req.script)
+    return {"message": "Script updated successfully"}
+
 @router.post("/{project_id}/test-cases/{test_id}/approve", response_model=TestCase)
 def approve_test_case(project_id: str, test_id: str) -> Any:
     return update_test_case(project_id, test_id, {"status": TestCaseStatus.APPROVED})
