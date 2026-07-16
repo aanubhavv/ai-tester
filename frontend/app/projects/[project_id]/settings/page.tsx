@@ -1,5 +1,6 @@
 import { Settings, Trash2, Save } from "lucide-react";
 import ProjectSettingsForm from "./ProjectSettingsForm";
+import DeleteProjectButton from "./DeleteProjectButton";
 
 async function getProject(projectId: string) {
   try {
@@ -38,10 +39,7 @@ export default async function SettingsPage(props: { params: Promise<{ project_id
           Once you delete a project, there is no going back. Please be certain.
         </p>
         
-        <button disabled className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-red-900 bg-red-950/50 text-red-400 opacity-50 cursor-not-allowed hover:bg-red-900/50 h-9 px-4 py-2">
-          <Trash2 className="mr-2 h-4 w-4" />
-          Delete Project
-        </button>
+        <DeleteProjectButton projectId={project.project_id} />
       </div>
     </div>
   );

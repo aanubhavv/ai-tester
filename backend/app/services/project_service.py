@@ -67,7 +67,7 @@ class ProjectService:
             return projects
             
         for entry in os.scandir(PROJECTS_ROOT):
-            if entry.is_dir():
+            if entry.is_dir() and not entry.name.startswith("."):
                 project_file = Path(entry.path) / "project.json"
                 if project_file.exists():
                     try:
