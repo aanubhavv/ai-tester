@@ -112,7 +112,8 @@ If you provide a fixed_script, ensure it is the FULL, valid TypeScript script, r
                     self._complete_tc(
                         project_id, tc_id, "Failed", 
                         f"[Website Bug Found]\n{decision.analysis}", 
-                        ""
+                        "",
+                        error_msg=current_result["error"]
                     )
                     return
                 
@@ -138,7 +139,9 @@ If you provide a fixed_script, ensure it is the FULL, valid TypeScript script, r
                 
                 if new_result["status"] == "Passed":
                     # Self-healing succeeded!
-                    self._complete_tc(project_id, tc_id, "Passed", "[Self-Healed Successfully] Script passed execution.", "")
+                    actual_res = f"Successfully verified: {tc.expected_result}" if hasattr(tc, 'expected_result') and tc.expected_result else "Script passed successfully."
+                    fixed_error_msg = f"[Fixed via Self-Healing] The following error was observed and automatically resolved:\n\n{initial_result['error']}\n\n--- Fix Applied ---\n{decision.analysis}"
+                    self._complete_tc(project_id, tc_id, "Passed", actual_res, "", error_msg=fixed_error_msg)
                     return
                 else:
                     # Failed again, feed the new result into the next iteration
@@ -150,10 +153,10 @@ If you provide a fixed_script, ensure it is the FULL, valid TypeScript script, r
                 return
 
         # If we exhausted max retries
-        self._fail_tc(project_id, tc_id, "Max self-healing retries reached. Script still failing.", "")
+        self._fail_tc(project_id, tc_id, "Max self-healing retries reached. Script still failing.", "", error_msg=current_result["error"])
         
-    def _fail_tc(self, project_id: str, tc_id: str, actual_result: str, additional_logs: str):
-        self._complete_tc(project_id, tc_id, "Failed", actual_result, additional_logs)
+    def _fail_tc(self, project_id: str, tc_id: str, actual_result: str, additional_logs: str, error_msg: str = None):
+        self._complete_tc(project_id, tc_id, "Failed", actual_result, additional_logs, error_msg=error_msg)
 
     def _update_logs(self, project_id: str, tc_id: str, logs: str):
         tc_list = generation_service.get_test_cases(project_id)
@@ -165,7 +168,7 @@ If you provide a fixed_script, ensure it is the FULL, valid TypeScript script, r
                 break
         generation_service.save_test_cases(project_id, tc_list)
 
-    def _complete_tc(self, project_id: str, tc_id: str, status: str, actual_result: str, additional_logs: str):
+    def _complete_tc(self, project_id: str, tc_id: str, status: str, actual_result: str, additional_logs: str, error_msg: str = None):
         tc_list = generation_service.get_test_cases(project_id)
         for i, item in enumerate(tc_list):
             if item.id == tc_id:
@@ -179,6 +182,9 @@ If you provide a fixed_script, ensure it is the FULL, valid TypeScript script, r
                 else:
                     item.status = status
                 item.actual_result = actual_result
+                
+                if error_msg is not None:
+                    item.last_execution_error = error_msg
                 
                 if additional_logs:
                     existing_logs = item.execution_logs or ""

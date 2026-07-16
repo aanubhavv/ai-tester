@@ -587,10 +587,21 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                       <div className="space-y-4">
                         {selectedCase.last_execution_error && (
                           <div>
-                            <h4 className="text-sm font-semibold text-red-400 mb-2 uppercase tracking-wider">Error Message</h4>
-                            <div className="bg-red-950/20 p-4 rounded-lg border border-red-900/30 text-sm text-red-200 font-mono whitespace-pre-wrap overflow-x-auto">
-                              {selectedCase.last_execution_error}
-                            </div>
+                            {selectedCase.last_execution_error.includes('[Fixed via Self-Healing]') ? (
+                              <>
+                                <h4 className="text-sm font-semibold text-amber-400 mb-2 uppercase tracking-wider">Resolved Error (Self-Healed)</h4>
+                                <div className="bg-amber-950/20 p-4 rounded-lg border border-amber-900/30 text-sm text-amber-200 font-mono whitespace-pre-wrap overflow-x-auto">
+                                  {selectedCase.last_execution_error}
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <h4 className="text-sm font-semibold text-red-400 mb-2 uppercase tracking-wider">Error Message</h4>
+                                <div className="bg-red-950/20 p-4 rounded-lg border border-red-900/30 text-sm text-red-200 font-mono whitespace-pre-wrap overflow-x-auto">
+                                  {selectedCase.last_execution_error}
+                                </div>
+                              </>
+                            )}
                           </div>
                         )}
                         {selectedCase.execution_logs && (
