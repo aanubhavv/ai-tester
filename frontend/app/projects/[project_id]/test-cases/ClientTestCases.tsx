@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Download, Beaker, PlayCircle, Eye, Edit2, Check, X, CheckCircle2, AlertCircle, Circle, FileText, Save, Edit, Terminal, Copy, Undo2 } from "lucide-react";
+import { Download, Beaker, PlayCircle, Eye, Edit2, Check, X, CheckCircle2, AlertCircle, Circle, FileText, Save, Edit, Terminal, Copy, Undo2, ImageIcon, Minimize2, Maximize2, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import { useToast } from "@/components/ui/ToastProvider";
 import { useConfirm } from "@/components/ui/ConfirmProvider";
 import { useRouter } from "next/navigation";
@@ -24,6 +24,8 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
   const [scriptViewerCase, setScriptViewerCase] = useState<any | null>(null);
   const [isEditingScript, setIsEditingScript] = useState(false);
   const [editedScript, setEditedScript] = useState("");
+  const [isScreenshotExpanded, setIsScreenshotExpanded] = useState(false);
+  const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
     // Poll for updates if any scripts are generating or queued
@@ -612,6 +614,64 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                             </div>
                           </div>
                         )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Target Location Screenshot */}
+                  {selectedCase.screenshot && selectedCase.screenshot.startsWith('/') && (
+                    <div className="mt-8 border-t border-zinc-800/50 pt-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-base font-semibold text-zinc-100 flex items-center gap-2">
+                          <ImageIcon className="h-4 w-4 text-emerald-400" />
+                          Target Location Screenshot
+                        </h3>
+                        <button 
+                          onClick={() => setIsScreenshotExpanded(!isScreenshotExpanded)}
+                          className="p-1.5 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+                        >
+                          {isScreenshotExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                        </button>
+                      </div>
+                      
+                      <div className={`bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden flex transition-all ${isScreenshotExpanded ? 'fixed inset-4 z-50 p-4 bg-zinc-950/95 backdrop-blur shadow-2xl flex-col' : 'relative h-[400px]'}`}>
+                        {isScreenshotExpanded && (
+                          <div className="absolute top-6 right-6 flex items-center gap-2 z-50">
+                            <button 
+                              onClick={() => setZoom(z => z + 0.25)}
+                              className="p-2 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors"
+                            >
+                              <ZoomIn className="h-5 w-5" />
+                            </button>
+                            <button 
+                              onClick={() => setZoom(z => Math.max(0.1, z - 0.25))}
+                              className="p-2 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors"
+                            >
+                              <ZoomOut className="h-5 w-5" />
+                            </button>
+                            <button 
+                              onClick={() => setZoom(1)}
+                              className="p-2 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors"
+                            >
+                              <RotateCcw className="h-5 w-5" />
+                            </button>
+                            <button 
+                              onClick={() => { setIsScreenshotExpanded(false); setZoom(1); }}
+                              className="p-2 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors ml-4"
+                            >
+                              <Minimize2 className="h-5 w-5" />
+                            </button>
+                          </div>
+                        )}
+                        <div className={`${isScreenshotExpanded ? 'w-full h-full overflow-auto pt-16' : 'absolute inset-0'}`}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img 
+                            src={`http://127.0.0.1:8000${selectedCase.screenshot}`} 
+                            alt="Target Location Screenshot" 
+                            style={isScreenshotExpanded ? { width: `${zoom * 100}%`, transition: 'width 0.2s' } : {}}
+                            className={`transition-all ${isScreenshotExpanded ? 'max-w-none mx-auto block' : 'w-full h-full object-cover object-top block'}`}
+                          />
+                        </div>
                       </div>
                     </div>
                   )}

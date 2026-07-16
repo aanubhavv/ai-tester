@@ -19,7 +19,10 @@ from app.services.playwright_execution.self_healing_agent import self_healing_ag
 from app.services.execution.queue import execution_queue
 from app.services.script_generation.generator import script_generator
 from app.services.playwright_execution.runner import execution_runner, PlaywrightExecutionService
+from app.services.test_case_marker_service import test_case_marker_service
+from app.services.project_service import PROJECTS_ROOT
 from datetime import datetime
+from fastapi.responses import FileResponse
 
 router = APIRouter()
 
@@ -175,6 +178,16 @@ async def _execution_job(project_id: str, tc_id: str):
     
     result = await execution_runner.execute_script(project_id, tc)
     
+    # Run target marker synchronously to take screenshot and update details
+    try:
+        # Avoid blocking async loop since mark_target_on_screenshot is synchronous and launches browser
+        import asyncio
+        screenshot_url = await asyncio.to_thread(test_case_marker_service.mark_target_on_screenshot, project_id, tc)
+        if screenshot_url:
+            _update_tc_internal(project_id, tc_id, {"screenshot": screenshot_url})
+    except Exception as e:
+        print(f"Failed to generate target screenshot for {tc_id}: {e}")
+    
     if result["status"] == "Failed":
         # Initial update with script failure
         _update_tc_internal(project_id, tc_id, {
@@ -244,3 +257,13 @@ async def bulk_stop_execution(project_id: str, req: BulkActionRequest) -> Any:
             "last_execution_error": "Stopped by user."
         })
     return {"message": f"Stopped {len(req.test_case_ids)} tasks"}
+
+@router.get("/{project_id}/test-cases/{test_id}/screenshot")
+def get_test_case_screenshot(project_id: str, test_id: str) -> Any:
+    tests_dir = PROJECTS_ROOT / project_id / "test_cases"
+    image_path = tests_dir / f"{test_id}_screenshot.png"
+    
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Screenshot not found.")
+        
+    return FileResponse(path=image_path, media_type="image/png")
