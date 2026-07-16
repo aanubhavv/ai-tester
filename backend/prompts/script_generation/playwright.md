@@ -25,6 +25,7 @@ The following is an excerpt of the DOM structure from the target application (cl
 5. Use reliable locators (e.g., `getByRole`, `getByText`, `getByLabel`) based on the provided DOM. Do not hallucinate locators; try to infer the best selectors from the DOM structure.
 6. Handle potential flakiness using built-in auto-waiting rather than hardcoded timeouts.
 7. Output ONLY the raw TypeScript code, without markdown wrapping like ```typescript or ```. The script will be directly saved to a `.spec.ts` file.
+8. **Text Verification**: Beware that Playwright's text extraction sometimes squashes text around `<br>` or inline elements. When asserting long strings of text, especially if line breaks might occur, consider using Regex `.toMatch(/.../)` with `\\s*` where line breaks or spaces might exist, or assert smaller substrings instead of exact matches to avoid false negative failures due to missing whitespace.
 
 ### EXAMPLE OUTPUT FORMAT
 import { test, expect } from '@playwright/test';

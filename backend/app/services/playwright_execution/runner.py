@@ -61,6 +61,21 @@ class PlaywrightExecutionService:
         try:
             job_id = f"{project_id}_{tc.id}"
             
+            # Ensure playwright.config.ts exists to capture screenshots on failure
+            config_path = scripts_dir / "playwright.config.ts"
+            if not config_path.exists():
+                config_content = """
+import { defineConfig } from '@playwright/test';
+export default defineConfig({
+  use: {
+    screenshot: 'only-on-failure',
+  },
+  reporter: 'json',
+});
+"""
+                with open(config_path, "w", encoding="utf-8") as f:
+                    f.write(config_content.strip())
+            
             # We use a single string command to avoid Windows shell list-argument drops
             def _run_playwright():
                 cmd_str = f"npx --yes playwright test {file_path.name} --reporter=json --headed"
@@ -107,6 +122,10 @@ class PlaywrightExecutionService:
                                         error_msg = result.get('error', {}).get('message', '')
                                         if error_msg:
                                             result_data["error"] = clean_text_for_excel(error_msg)
+                                        # Extract screenshot if available
+                                        for attachment in result.get('attachments', []):
+                                            if attachment.get('contentType') == 'image/png' and attachment.get('path'):
+                                                result_data["screenshot_path"] = attachment.get('path')
                 except Exception as parse_e:
                     logger.warning(f"Failed to parse report.json: {parse_e}")
                 finally:

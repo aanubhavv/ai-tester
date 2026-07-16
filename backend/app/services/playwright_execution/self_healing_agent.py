@@ -4,6 +4,7 @@ from typing import Optional
 from pathlib import Path
 from datetime import datetime
 from pydantic import BaseModel, Field
+from google.genai import types
 
 from app.schemas.test_cases.models import TestCase
 from app.services.project_service import project_service, PROJECTS_ROOT
@@ -63,27 +64,40 @@ Expected Result: {tc.expected_result or 'None'}
 ```
 
 ### Execution Error:
-{current_result["error"]}
+{current_result.get("error", "None")}
 
 ### Execution Logs:
-{current_result["logs"]}
+{current_result.get("logs", "None")}
 
-Analyze the failure. 
+Analyze the failure. You may also be provided with a screenshot of the failure state from Playwright.
 1. If the script is broken (e.g. strict selector failing, missing wait, logic error), set `is_website_bug` to false and provide the `fixed_script`.
-2. If the script is perfectly fine and correctly verifying the Expected Result, but the website itself is broken or the feature is missing, set `is_website_bug` to true and explain the bug in `analysis`.
+   *Important Note on Whitespace/Line Breaks*: Playwright sometimes squashes text around `<br>` or inline tags (e.g., extracting "affordableGLP-1" instead of "affordable GLP-1"). If a failure is due to missing spaces where a line break naturally occurs, this is a SCRIPTing/assertion issue, NOT a website bug. You should fix the script (e.g. by using regex `.toHaveText(/affordable\\s*GLP-1/)` or splitting the assertion) instead of blaming the website.
+2. If the script is perfectly fine and correctly verifying the Expected Result, but the website itself is broken or the feature is missing, set `is_website_bug` to true and explain the bug in `analysis`. Look at the attached screenshot (if any) to confirm the visual state of the website before deciding it is a website bug.
 
 Return the JSON object according to the schema. 
 If you provide a fixed_script, ensure it is the FULL, valid TypeScript script, ready to run.
 """
             
+            # Check for screenshot
+            final_prompt = prompt
+            screenshot_path = current_result.get("screenshot_path")
+            if screenshot_path:
+                try:
+                    with open(screenshot_path, "rb") as img_file:
+                        image_bytes = img_file.read()
+                    image_part = types.Part.from_bytes(data=image_bytes, mime_type="image/png")
+                    final_prompt = [prompt, image_part]
+                except Exception as e:
+                    logger.warning(f"Failed to load screenshot for self-healing: {e}")
+                    final_prompt = prompt
+            
             # Log the attempt start in the UI
             self._update_logs(project_id, tc_id, f"\n\n--- Self-Healing Attempt {attempt}/{max_retries} ---\nAnalyzing failure...")
             
             try:
-                # We use generate_structured in a thread to avoid blocking if the provider doesn't support async natively
                 def _call_ai():
                     return ai_service.generate_structured_raw(
-                        prompt=prompt,
+                        prompt=final_prompt,
                         schema_class=SelfHealingDecision,
                         model_name="gemini-3.1-flash-lite"
                     )

@@ -5,6 +5,8 @@ import { Download, Beaker, PlayCircle, Eye, Edit2, Check, X, CheckCircle2, Alert
 import { useToast } from "@/components/ui/ToastProvider";
 import { useConfirm } from "@/components/ui/ConfirmProvider";
 import { useRouter } from "next/navigation";
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 export default function ClientTestCases({ initialTestCases, projectId }: { initialTestCases: any[], projectId: string }) {
   const router = useRouter();
@@ -680,10 +682,20 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
               </button>
             </div>
             
-            <div className="p-6 bg-zinc-950 max-h-[70vh] overflow-y-auto">
-              <pre className="bg-[#0d1117] text-zinc-300 p-4 rounded-lg text-sm font-mono overflow-x-auto whitespace-pre-wrap border border-zinc-800">
-                <code>{scriptViewerCase.script || '// No script generated yet.'}</code>
-              </pre>
+            <div className="p-6 bg-zinc-950 max-h-[70vh] overflow-y-auto w-full">
+              <SyntaxHighlighter
+                language="typescript"
+                style={vscDarkPlus}
+                customStyle={{
+                  margin: 0,
+                  borderRadius: '0.5rem',
+                  fontSize: '0.875rem',
+                  backgroundColor: '#0d1117',
+                  border: '1px solid #27272a'
+                }}
+              >
+                {scriptViewerCase.script || '// No script generated yet.'}
+              </SyntaxHighlighter>
             </div>
             
             <div className="flex justify-between items-center px-6 py-4 border-t border-zinc-800 bg-zinc-900/30">

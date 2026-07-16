@@ -187,7 +187,7 @@ async def _execution_job(project_id: str, tc_id: str):
         "last_execution_time": result["duration"],
         "last_execution_error": result["error"],
         "execution_logs": result["logs"],
-        "actual_result": "Script passed successfully.",
+        "actual_result": f"Successfully verified: {tc.expected_result}" if result["status"] == "Passed" and tc.expected_result else ("Script passed successfully." if result["status"] == "Passed" else result["error"]),
         "last_execution_timestamp": datetime.utcnow().isoformat()
     })
 
