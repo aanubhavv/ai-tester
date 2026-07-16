@@ -156,7 +156,14 @@ If you provide a fixed_script, ensure it is the FULL, valid TypeScript script, r
         for i, item in enumerate(tc_list):
             if item.id == tc_id:
                 item.execution_status = status
-                item.status = status
+                
+                # Map execution status to global metadata status
+                if status == "Passed":
+                    item.status = "Pass"
+                elif status == "Failed":
+                    item.status = "Fail"
+                else:
+                    item.status = status
                 item.actual_result = actual_result
                 
                 if additional_logs:

@@ -181,9 +181,11 @@ async def _execution_job(project_id: str, tc_id: str):
         
     _update_tc_internal(project_id, tc_id, {
         "execution_status": result["status"],
+        "status": "Pass" if result["status"] == "Passed" else "Fail",
         "last_execution_time": result["duration"],
         "last_execution_error": result["error"],
         "execution_logs": result["logs"],
+        "actual_result": "Script passed successfully.",
         "last_execution_timestamp": datetime.utcnow().isoformat()
     })
 
