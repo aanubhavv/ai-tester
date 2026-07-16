@@ -14,6 +14,8 @@ from app.schemas.planning.requirements import StructuredRequirements
 from app.schemas.planning.features import FeatureExtractionResult
 from app.schemas.planning.strategy import SuiteGenerationResult
 from app.schemas.execution import BulkActionRequest
+
+from app.services.playwright_execution.self_healing_agent import self_healing_agent
 from app.services.execution.queue import execution_queue
 from app.services.script_generation.generator import script_generator
 from app.services.playwright_execution.runner import execution_runner, PlaywrightExecutionService
@@ -162,6 +164,21 @@ async def _execution_job(project_id: str, tc_id: str):
     
     result = await execution_runner.execute_script(project_id, tc)
     
+    if result["status"] == "Failed":
+        # Initial update with script failure
+        _update_tc_internal(project_id, tc_id, {
+            "execution_status": "Running",
+            "last_execution_time": result["duration"],
+            "last_execution_error": result["error"],
+            "execution_logs": result["logs"] + "\n\n[Script Failed] Triggering Self-Healing Pipeline...",
+            "last_execution_timestamp": datetime.utcnow().isoformat()
+        })
+        # The new self-healing loop manages its own threads/async so we can await it directly.
+        # But wait, self_healing_agent is an asyncio native method!
+        import asyncio
+        asyncio.create_task(self_healing_agent.run_healing_loop(project_id, tc_id, tc, result))
+        return
+        
     _update_tc_internal(project_id, tc_id, {
         "execution_status": result["status"],
         "last_execution_time": result["duration"],

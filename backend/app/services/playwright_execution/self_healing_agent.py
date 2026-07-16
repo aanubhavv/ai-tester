@@ -1,0 +1,172 @@
+import logging
+import asyncio
+from typing import Optional
+from pathlib import Path
+from datetime import datetime
+from pydantic import BaseModel, Field
+
+from app.schemas.test_cases.models import TestCase
+from app.services.project_service import project_service, PROJECTS_ROOT
+from app.services.ai.ai_service import ai_service
+from app.services.test_generation.generation_service import generation_service
+from app.services.playwright_execution.runner import execution_runner
+
+logger = logging.getLogger(__name__)
+
+class SelfHealingDecision(BaseModel):
+    is_website_bug: bool = Field(description="True if the test script is correct but the website failed to behave as expected (a genuine bug or missing feature). False if the script itself is broken (e.g. bad selector, timing issue, missing step) and needs fixing.")
+    analysis: str = Field(description="Detailed explanation of the error and reasoning for your decision.")
+    fixed_script: Optional[str] = Field(description="If is_website_bug is False, provide the fully rewritten and fixed Playwright script here. It must be valid TypeScript. If is_website_bug is True, this can be null.")
+
+class SelfHealingAgent:
+    """
+    Acts as a senior QA Automation Engineer to analyze failed executions,
+    fix Playwright scripts automatically, and rerun them.
+    """
+    
+    async def run_healing_loop(self, project_id: str, tc_id: str, tc: TestCase, initial_result: dict) -> None:
+        """
+        Runs the self-healing loop up to a maximum number of retries.
+        Does not block the main event loop because we will run it via an asyncio Task, 
+        but the loop itself is fully async.
+        """
+        logger.info(f"Triggering Self-Healing Pipeline for {tc_id}")
+        
+        max_retries = 3
+        current_result = initial_result
+        
+        scripts_dir = PROJECTS_ROOT / project_id / "scripts" / "generated"
+        script_path = scripts_dir / f"{tc_id}.spec.ts"
+        
+        for attempt in range(1, max_retries + 1):
+            logger.info(f"Self-Healing Attempt {attempt}/{max_retries} for {tc_id}")
+            
+            # Read current script
+            if not script_path.exists():
+                self._fail_tc(project_id, tc_id, "Cannot self-heal: Script file not found.", current_result["logs"])
+                return
+                
+            with open(script_path, "r", encoding="utf-8") as f:
+                current_script = f.read()
+                
+            prompt = f"""
+You are a Senior QA Automation Engineer. A Playwright script has failed during execution.
+
+Test Case ID: {tc_id}
+Preconditions: {tc.preconditions or 'None'}
+Test Steps: {tc.test_steps or 'None'}
+Expected Result: {tc.expected_result or 'None'}
+
+### Original Playwright Script:
+```typescript
+{current_script}
+```
+
+### Execution Error:
+{current_result["error"]}
+
+### Execution Logs:
+{current_result["logs"]}
+
+Analyze the failure. 
+1. If the script is broken (e.g. strict selector failing, missing wait, logic error), set `is_website_bug` to false and provide the `fixed_script`.
+2. If the script is perfectly fine and correctly verifying the Expected Result, but the website itself is broken or the feature is missing, set `is_website_bug` to true and explain the bug in `analysis`.
+
+Return the JSON object according to the schema. 
+If you provide a fixed_script, ensure it is the FULL, valid TypeScript script, ready to run.
+"""
+            
+            # Log the attempt start in the UI
+            self._update_logs(project_id, tc_id, f"\n\n--- Self-Healing Attempt {attempt}/{max_retries} ---\nAnalyzing failure...")
+            
+            try:
+                # We use generate_structured in a thread to avoid blocking if the provider doesn't support async natively
+                def _call_ai():
+                    return ai_service.generate_structured_raw(
+                        prompt=prompt,
+                        schema_class=SelfHealingDecision,
+                        model_name="gemini-3.1-flash-lite"
+                    )
+                decision = await asyncio.to_thread(_call_ai)
+                
+                analysis_log = f"AI Analysis:\nIs Website Bug: {decision.is_website_bug}\nReasoning: {decision.analysis}"
+                self._update_logs(project_id, tc_id, analysis_log)
+                logger.info(f"Self-Healing Decision for {tc_id}: is_bug={decision.is_website_bug}")
+                
+                if decision.is_website_bug:
+                    # It's a genuine bug. Fail the test case and stop the loop.
+                    self._complete_tc(
+                        project_id, tc_id, "Failed", 
+                        f"[Website Bug Found]\n{decision.analysis}", 
+                        ""
+                    )
+                    return
+                
+                if not decision.fixed_script:
+                    self._fail_tc(project_id, tc_id, "AI determined it was a script issue but failed to provide a fixed script.", "")
+                    return
+                
+                # Clean the script if AI added markdown blocks
+                clean_script = decision.fixed_script.replace("```typescript", "").replace("```ts", "").replace("```", "").strip()
+                
+                # Overwrite the script
+                with open(script_path, "w", encoding="utf-8") as f:
+                    f.write(clean_script)
+                
+                self._update_logs(project_id, tc_id, "Script rewritten. Triggering re-execution...")
+                
+                # Re-run the script
+                new_result = await execution_runner.execute_script(project_id, tc)
+                
+                # Append the new execution logs to our running history
+                combined_logs = f"\n\n--- Re-Execution Results ---\nStatus: {new_result['status']}\nError: {new_result['error']}\nLogs:\n{new_result['logs']}"
+                self._update_logs(project_id, tc_id, combined_logs)
+                
+                if new_result["status"] == "Passed":
+                    # Self-healing succeeded!
+                    self._complete_tc(project_id, tc_id, "Passed", "[Self-Healed Successfully] Script passed execution.", "")
+                    return
+                else:
+                    # Failed again, feed the new result into the next iteration
+                    current_result = new_result
+                    
+            except Exception as e:
+                logger.error(f"Error during self-healing loop for {tc_id}: {e}", exc_info=True)
+                self._fail_tc(project_id, tc_id, f"Self-Healing Agent crashed: {str(e)}", "")
+                return
+
+        # If we exhausted max retries
+        self._fail_tc(project_id, tc_id, "Max self-healing retries reached. Script still failing.", "")
+        
+    def _fail_tc(self, project_id: str, tc_id: str, actual_result: str, additional_logs: str):
+        self._complete_tc(project_id, tc_id, "Failed", actual_result, additional_logs)
+
+    def _update_logs(self, project_id: str, tc_id: str, logs: str):
+        tc_list = generation_service.get_test_cases(project_id)
+        for i, item in enumerate(tc_list):
+            if item.id == tc_id:
+                existing_logs = item.execution_logs or ""
+                item.execution_logs = existing_logs + "\n" + logs
+                tc_list[i] = item
+                break
+        generation_service.save_test_cases(project_id, tc_list)
+
+    def _complete_tc(self, project_id: str, tc_id: str, status: str, actual_result: str, additional_logs: str):
+        tc_list = generation_service.get_test_cases(project_id)
+        for i, item in enumerate(tc_list):
+            if item.id == tc_id:
+                item.execution_status = status
+                item.status = status
+                item.actual_result = actual_result
+                
+                if additional_logs:
+                    existing_logs = item.execution_logs or ""
+                    item.execution_logs = existing_logs + "\n\n" + additional_logs
+                    
+                item.last_execution_timestamp = datetime.utcnow().isoformat()
+                
+                tc_list[i] = item
+                break
+        generation_service.save_test_cases(project_id, tc_list)
+
+self_healing_agent = SelfHealingAgent()

@@ -1,5 +1,5 @@
 import time
-from typing import Type, Optional
+from typing import Type, Optional, Union
 from pydantic import BaseModel
 from google import genai
 from google.genai import types
@@ -31,7 +31,7 @@ class GeminiProvider(BaseProvider):
 
     def generate_structured(
         self, 
-        prompt: str, 
+        prompt: Union[str, list], 
         schema_class: Type[BaseModel],
         model: str,
         options: Optional[AIRequestOptions] = None
@@ -79,7 +79,7 @@ class GeminiProvider(BaseProvider):
 
     def generate_text(
         self, 
-        prompt: str, 
+        prompt: Union[str, list], 
         model: str,
         options: Optional[AIRequestOptions] = None
     ) -> AIResponseContext:

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Type, TypeVar, Optional, Any
+from typing import Type, TypeVar, Optional, Any, Union
 from pydantic import BaseModel
 
 from app.schemas.ai import AIResponseContext, AIRequestOptions
@@ -15,7 +15,7 @@ class BaseProvider(ABC):
     @abstractmethod
     def generate_structured(
         self, 
-        prompt: str, 
+        prompt: Union[str, list], 
         schema_class: Type[T],
         model: str,
         options: Optional[AIRequestOptions] = None
@@ -29,7 +29,7 @@ class BaseProvider(ABC):
     @abstractmethod
     def generate_text(
         self,
-        prompt: str,
+        prompt: Union[str, list],
         model: str,
         options: Optional[AIRequestOptions] = None
     ) -> AIResponseContext:

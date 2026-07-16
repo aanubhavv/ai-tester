@@ -1,9 +1,10 @@
 import logging
-from typing import Type, TypeVar, Any, Optional
+from typing import Type, TypeVar, Any, Optional, Union
 from pydantic import BaseModel
 
-from app.schemas.ai import AIResponseContext, AIRequestOptions
+from app.schemas.ai import AIResponseContext, AIRequestOptions, AIProviderType
 from app.services.ai.model_router import model_router
+from app.services.ai.provider_manager import provider_manager
 from app.services.ai.prompt_manager import prompt_manager
 from app.services.ai.retry_handler import retry_handler
 from app.services.ai.response_parser import response_parser
@@ -73,6 +74,46 @@ class AIService:
         if use_cache:
             ai_cache.set(task, prompt, model_name, final_data.model_dump())
 
+        return final_data
+
+    def generate_structured_raw(
+        self,
+        prompt: Union[str, list],
+        schema_class: Type[T],
+        model_name: str = "gemini-3.1-flash-lite",
+        provider_type: AIProviderType = AIProviderType.GEMINI,
+        options: Optional[AIRequestOptions] = None
+    ) -> T:
+        """
+        Executes a task with a raw prompt (string or list for multimodal) and returns a strongly-typed Pydantic model.
+        Bypasses prompt_manager and cache.
+        """
+        provider = provider_manager.get_provider(provider_type)
+        merged_options = options or AIRequestOptions(retries=3)
+        if not merged_options.retries:
+            merged_options.retries = 3
+        
+        resolved_model = model_name
+            
+        def _execute() -> AIResponseContext:
+            return provider.generate_structured(
+                prompt=prompt,
+                schema_class=schema_class,
+                model=resolved_model,
+                options=merged_options
+            )
+
+        response_context: AIResponseContext = retry_handler.execute_with_retry(
+            _execute, 
+            max_retries=merged_options.retries if merged_options.retries else 3
+        )
+
+        if isinstance(response_context.data, str):
+            final_data = response_parser.parse_structured(response_context.data, schema_class)
+        else:
+            final_data = response_context.data
+            
+        cost_tracker.record_usage("autonomous_agent", response_context.metrics)
         return final_data
 
     def generate_text(
