@@ -98,6 +98,33 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
     setEditedCase((prev: any) => ({ ...prev, [field]: value }));
   };
 
+  const handleQuickStatusChange = async (tcId: string, newStatus: string) => {
+    const tcToUpdate = initialTestCases.find(tc => tc.id === tcId);
+    if (!tcToUpdate) return;
+    
+    // Optimistic UI update could go here, but for simplicity we rely on router.refresh()
+    try {
+      const updatedData = { ...tcToUpdate, status: newStatus };
+      const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/${tcId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(updatedData)
+      });
+      
+      if (res.ok) {
+        router.refresh();
+        success("Status updated successfully.");
+      } else {
+        error("Failed to update status.");
+      }
+    } catch (e) {
+      console.error(e);
+      error("An error occurred while saving status.");
+    }
+  };
+
   const renderFormattedText = (text: string | undefined | null) => {
     if (!text) return null;
     const withNewlines = text.replace(/<br\s*\/?>/gi, '\n');
@@ -182,7 +209,16 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         {getStatusIcon(tc.status)}
-                        <span className="text-zinc-300">{tc.status}</span>
+                        <select 
+                          value={tc.status}
+                          onChange={(e) => handleQuickStatusChange(tc.id, e.target.value)}
+                          className="bg-transparent text-zinc-300 font-medium cursor-pointer hover:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-700 rounded px-1 -ml-1"
+                        >
+                          <option value="Pass" className="bg-zinc-900">Pass</option>
+                          <option value="Fail" className="bg-zinc-900">Fail</option>
+                          <option value="Blocked" className="bg-zinc-900">Blocked</option>
+                          <option value="Not Executed" className="bg-zinc-900">Not Executed</option>
+                        </select>
                       </div>
                     </td>
                     <td className="px-4 py-3">
