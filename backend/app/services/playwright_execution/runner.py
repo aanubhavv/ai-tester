@@ -86,7 +86,9 @@ export default defineConfig({
                 with open(file_path, "r", encoding="utf-8") as f:
                     original_script = f.read()
                     
-                injection = """
+                injection = ""
+                if settings.enable_target_screenshot:
+                    injection = """
 
 // --- AI Tester Injected Layout Extraction ---
 test.afterEach(async ({ page }) => {
@@ -186,10 +188,7 @@ test.afterEach(async ({ page }) => {
     
     // 8. Final delay
     await page.waitForTimeout(500);
-"""
 
-                if settings.enable_target_screenshot:
-                    injection += """
     // Capture screenshot and layout
     await page.screenshot({ path: 'target_screenshot.png', fullPage: true });
     const layout = await page.evaluate(() => {
@@ -213,9 +212,6 @@ test.afterEach(async ({ page }) => {
     });
     const fs = require('fs');
     fs.writeFileSync('target_layout.json', JSON.stringify(layout));
-"""
-
-                injection += """
   } catch(e) {
     console.error("Failed to extract layout:", e);
   }
