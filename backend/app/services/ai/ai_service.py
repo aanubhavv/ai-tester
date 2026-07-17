@@ -78,22 +78,18 @@ class AIService:
 
     def generate_structured_raw(
         self,
+        task: str,
         prompt: Union[str, list],
         schema_class: Type[T],
-        model_name: str = "gemini-3.1-flash-lite",
-        provider_type: AIProviderType = AIProviderType.GEMINI,
         options: Optional[AIRequestOptions] = None
     ) -> T:
         """
         Executes a task with a raw prompt (string or list for multimodal) and returns a strongly-typed Pydantic model.
-        Bypasses prompt_manager and cache.
+        Bypasses prompt_manager and cache. Uses model_router to resolve provider and model.
         """
-        provider = provider_manager.get_provider(provider_type)
-        merged_options = options or AIRequestOptions(retries=3)
+        provider, resolved_model, merged_options = model_router.resolve_routing(task, options)
         if not merged_options.retries:
             merged_options.retries = 3
-        
-        resolved_model = model_name
             
         def _execute() -> AIResponseContext:
             return provider.generate_structured(
@@ -158,24 +154,22 @@ class AIService:
 
     def generate_text_raw(
         self,
+        task: str,
         prompt: Union[str, list],
-        model_name: str = "gemini-3.1-flash-lite",
-        provider_type: AIProviderType = AIProviderType.GEMINI,
         options: Optional[AIRequestOptions] = None
     ) -> str:
         """
         Executes a task with a raw prompt (string or list for multimodal) and returns raw text.
-        Bypasses prompt_manager and cache.
+        Bypasses prompt_manager and cache. Uses model_router to resolve provider and model.
         """
-        provider = provider_manager.get_provider(provider_type)
-        merged_options = options or AIRequestOptions(retries=3)
+        provider, resolved_model, merged_options = model_router.resolve_routing(task, options)
         if not merged_options.retries:
             merged_options.retries = 3
         
         def _execute() -> AIResponseContext:
             return provider.generate_text(
                 prompt=prompt,
-                model=model_name,
+                model=resolved_model,
                 options=merged_options
             )
 

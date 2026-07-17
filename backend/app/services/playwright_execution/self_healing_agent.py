@@ -97,9 +97,9 @@ If you provide a fixed_script, ensure it is the FULL, valid TypeScript script, r
             try:
                 def _call_ai():
                     return ai_service.generate_structured_raw(
+                        task="self_healing",
                         prompt=final_prompt,
-                        schema_class=SelfHealingDecision,
-                        model_name="gemini-3.1-flash-lite"
+                        schema_class=SelfHealingDecision
                     )
                 decision = await asyncio.to_thread(_call_ai)
                 

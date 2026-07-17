@@ -25,11 +25,6 @@ class AIConfig:
             model="nvidia/nemotron-3-ultra-550b-a55b:free",
             temperature=0.2
         ),
-        "flow_analysis": TaskConfiguration(
-            provider=AIProviderType.OPENROUTER,
-            model="nvidia/nemotron-3-ultra-550b-a55b:free",
-            temperature=0.3
-        ),
         "risk_analysis": TaskConfiguration(
             provider=AIProviderType.OPENROUTER,
             model="nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -45,16 +40,40 @@ class AIConfig:
             model="nvidia/nemotron-3-ultra-550b-a55b:free",
             temperature=0.2
         ),
-        "test_case_generation": TaskConfiguration(
+        "generation": TaskConfiguration(
             provider=AIProviderType.OPENROUTER,
             model="nvidia/nemotron-3-ultra-550b-a55b:free",
             temperature=0.2
         ),
-        # A test task used for development
-        "health_check": TaskConfiguration(
+        "test_generation/exploration_summary": TaskConfiguration(
             provider=AIProviderType.OPENROUTER,
             model="nvidia/nemotron-3-ultra-550b-a55b:free",
-            temperature=0.0
+            temperature=0.2
+        ),
+        "execution/target_marker": TaskConfiguration(
+            provider=AIProviderType.OPENROUTER,
+            model="nvidia/nemotron-3-ultra-550b-a55b:free",
+            temperature=0.2
+        ),
+        "script_generation/playwright_improvement": TaskConfiguration(
+            provider=AIProviderType.OPENROUTER,
+            model="nvidia/nemotron-3-ultra-550b-a55b:free",
+            temperature=0.2
+        ),
+        "exploration": TaskConfiguration(
+            provider=AIProviderType.GEMINI,
+            model="gemini-3.1-flash-lite",
+            temperature=0.2
+        ),
+        "script_generation": TaskConfiguration(
+            provider=AIProviderType.GEMINI,
+            model="gemini-3.1-flash-lite",
+            temperature=0.2
+        ),
+        "self_healing": TaskConfiguration(
+            provider=AIProviderType.GEMINI,
+            model="gemini-3.1-flash-lite",
+            temperature=0.2
         )
     }
 
