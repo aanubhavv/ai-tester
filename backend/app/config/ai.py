@@ -15,31 +15,6 @@ class AIConfig:
     
     # Task specific routing overrides
     TASKS: Dict[str, TaskConfiguration] = {
-        "requirement_parsing": TaskConfiguration(
-            provider=AIProviderType.OPENROUTER,
-            model="nvidia/nemotron-3-ultra-550b-a55b:free",
-            temperature=0.1
-        ),
-        "feature_extraction": TaskConfiguration(
-            provider=AIProviderType.OPENROUTER,
-            model="nvidia/nemotron-3-ultra-550b-a55b:free",
-            temperature=0.2
-        ),
-        "risk_analysis": TaskConfiguration(
-            provider=AIProviderType.OPENROUTER,
-            model="nvidia/nemotron-3-ultra-550b-a55b:free",
-            temperature=0.4
-        ),
-        "strategy_generation": TaskConfiguration(
-            provider=AIProviderType.OPENROUTER,
-            model="nvidia/nemotron-3-ultra-550b-a55b:free",
-            temperature=0.3
-        ),
-        "suite_generation": TaskConfiguration(
-            provider=AIProviderType.OPENROUTER,
-            model="nvidia/nemotron-3-ultra-550b-a55b:free",
-            temperature=0.2
-        ),
         "generation": TaskConfiguration(
             provider=AIProviderType.OPENROUTER,
             model="nvidia/nemotron-3-ultra-550b-a55b:free",

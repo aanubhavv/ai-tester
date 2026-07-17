@@ -5,17 +5,11 @@ from pydantic import BaseModel
 from app.core.config import settings
 
 from app.services.test_generation.generation_service import generation_service
-from app.services.test_generation.coverage_analyzer import coverage_analyzer
 from app.services.test_generation.duplicate_detector import duplicate_detector
 from app.services.test_generation.version_service import version_service
 from app.services.test_generation.export_service import export_service
 from app.services.test_generation.exploration_service import exploration_service
-from app.services.planning.planning_service import planning_service
-
 from app.schemas.test_cases.models import TestCase, TestCaseStatus, CoverageReport
-from app.schemas.planning.requirements import StructuredRequirements
-from app.schemas.planning.features import FeatureExtractionResult
-from app.schemas.planning.strategy import SuiteGenerationResult
 from app.schemas.execution import BulkActionRequest
 
 from app.services.playwright_execution.self_healing_agent import self_healing_agent
@@ -81,20 +75,7 @@ def get_test_cases(project_id: str) -> Any:
             t.screenshot = "Screenshot disabled"
     return tests
 
-@router.get("/{project_id}/test-cases/coverage", response_model=CoverageReport)
-def get_coverage(project_id: str) -> Any:
-    tests = generation_service.get_test_cases(project_id)
-    
-    reqs_data = planning_service.get_artifact(project_id, "requirements.json")
-    features_data = planning_service.get_artifact(project_id, "features.json")
-    
-    if not reqs_data or not features_data:
-        raise HTTPException(status_code=400, detail="Cannot calculate coverage without requirements and features.")
-        
-    reqs = StructuredRequirements(**reqs_data)
-    features = FeatureExtractionResult(**features_data)
-    
-    return coverage_analyzer.analyze(tests, reqs, features)
+
 
 @router.get("/{project_id}/test-cases/duplicates")
 def get_duplicates(project_id: str) -> Any:
