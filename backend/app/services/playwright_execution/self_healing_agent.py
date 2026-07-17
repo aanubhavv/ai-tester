@@ -128,6 +128,15 @@ If you provide a fixed_script, ensure it is the FULL, valid TypeScript script, r
                 with open(script_path, "w", encoding="utf-8") as f:
                     f.write(clean_script)
                 
+                # Update script content in test cases metadata so frontend gets the new version
+                tc_list = generation_service.get_test_cases(project_id)
+                for i, item in enumerate(tc_list):
+                    if item.id == tc_id:
+                        item.script = clean_script
+                        tc_list[i] = item
+                        break
+                generation_service.save_test_cases(project_id, tc_list)
+                
                 self._update_logs(project_id, tc_id, "Script rewritten. Triggering re-execution...")
                 
                 # Re-run the script
