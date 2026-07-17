@@ -2,6 +2,8 @@ from typing import Any, List, Dict
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
 from pydantic import BaseModel
 
+from app.core.config import settings
+
 from app.services.test_generation.generation_service import generation_service
 from app.services.test_generation.coverage_analyzer import coverage_analyzer
 from app.services.test_generation.duplicate_detector import duplicate_detector
@@ -73,7 +75,11 @@ def generate_test_cases(project_id: str, background_tasks: BackgroundTasks) -> A
 
 @router.get("/{project_id}/test-cases", response_model=List[TestCase])
 def get_test_cases(project_id: str) -> Any:
-    return generation_service.get_test_cases(project_id)
+    tests = generation_service.get_test_cases(project_id)
+    if not settings.enable_target_screenshot:
+        for t in tests:
+            t.screenshot = "Screenshot disabled"
+    return tests
 
 @router.get("/{project_id}/test-cases/coverage", response_model=CoverageReport)
 def get_coverage(project_id: str) -> Any:
@@ -114,6 +120,9 @@ def update_test_case(project_id: str, test_id: str, updates: dict) -> Any:
     new_list = [updated_test if t.id == test_id else t for t in tests]
     generation_service.save_test_cases(project_id, new_list)
         
+    if not settings.enable_target_screenshot:
+        updated_test.screenshot = "Screenshot disabled"
+
     return updated_test
 
 class ScriptUpdateRequest(BaseModel):
@@ -219,14 +228,16 @@ async def _execution_job(project_id: str, tc_id: str):
     result = await execution_runner.execute_script(project_id, tc)
     
     # Run target marker synchronously to take screenshot and update details
-    try:
-        # Avoid blocking async loop since mark_target_on_screenshot is synchronous and launches browser
-        import asyncio
-        screenshot_url = await asyncio.to_thread(test_case_marker_service.mark_target_on_screenshot, project_id, tc)
-        if screenshot_url:
-            _update_tc_internal(project_id, tc_id, {"screenshot": screenshot_url})
-    except Exception as e:
-        print(f"Failed to generate target screenshot for {tc_id}: {e}")
+    if settings.enable_target_screenshot:
+        try:
+            # Avoid blocking async loop since mark_target_on_screenshot is synchronous and launches browser
+            import asyncio
+            screenshot_url = await asyncio.to_thread(test_case_marker_service.mark_target_on_screenshot, project_id, tc)
+            if screenshot_url:
+                _update_tc_internal(project_id, tc_id, {"screenshot": screenshot_url})
+        except Exception as e:
+            print(f"Failed to generate target screenshot for {tc_id}: {e}")
+
     
     if result["status"] == "Failed":
         # Initial update with script failure
