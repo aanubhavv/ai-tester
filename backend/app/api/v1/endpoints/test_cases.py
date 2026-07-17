@@ -97,6 +97,8 @@ def update_test_case(project_id: str, test_id: str, updates: dict) -> Any:
         
     target_dict = target.model_dump()
     target_dict.update(updates)
+    from datetime import datetime
+    target_dict["updated_at"] = datetime.utcnow().isoformat()
     updated_test = TestCase(**target_dict)
     
     # Save back to JSON and XLSX
@@ -166,6 +168,8 @@ def _update_tc_internal(project_id: str, tc_id: str, updates: dict):
     
     target_dict = target.model_dump()
     target_dict.update(updates)
+    from datetime import datetime
+    target_dict["updated_at"] = datetime.utcnow().isoformat()
     updated_test = TestCase(**target_dict)
     
     new_list = [updated_test if t.id == tc_id else t for t in tests]

@@ -696,7 +696,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                         <div className={`${isScreenshotExpanded ? 'w-full h-full overflow-auto pt-16' : 'absolute inset-0'}`}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img 
-                            src={`http://127.0.0.1:8000${selectedCase.screenshot}`} 
+                            src={`http://127.0.0.1:8000${selectedCase.screenshot}?t=${selectedCase.updated_at ? new Date(selectedCase.updated_at).getTime() : Date.now()}`} 
                             alt="Target Location Screenshot" 
                             style={isScreenshotExpanded ? { width: `${zoom * 100}%`, transition: 'width 0.2s' } : {}}
                             className={`transition-all ${isScreenshotExpanded ? 'max-w-none mx-auto block' : 'w-full h-full object-cover object-top block'}`}
