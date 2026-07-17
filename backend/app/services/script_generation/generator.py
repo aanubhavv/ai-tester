@@ -65,8 +65,8 @@ class ScriptGenerationService:
                         
                         # Call AI with multimodal prompt
                         raw_script = ai_service.generate_text_raw(
+                            task="script_generation",
                             prompt=[prompt_str, image_part],
-                            model_name="gemini-3.1-flash-lite",
                             options=None
                         )
                         return raw_script

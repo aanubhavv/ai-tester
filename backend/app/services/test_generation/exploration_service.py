@@ -84,8 +84,8 @@ class ExplorationService:
                     
                     try:
                         ai_page_analysis = ai_service.generate_text_raw(
-                            prompt=multimodal_content,
-                            model_name="gemini-3.1-flash-lite"
+                            task="exploration",
+                            prompt=multimodal_content
                         )
                     except Exception as e:
                         logger.error(f"Failed to analyze page with AI: {e}")
