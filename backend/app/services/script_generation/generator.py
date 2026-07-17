@@ -51,7 +51,7 @@ class ScriptGenerationService:
                         
                         # Prepare prompt manually
                         prompt_str = prompt_manager.get_prompt(
-                            task="script_generation/playwright",
+                            task_name="script_generation/playwright",
                             tc_id=tc.tc_id,
                             title=tc.title,
                             preconditions=tc.preconditions or "None",
