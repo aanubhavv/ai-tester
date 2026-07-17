@@ -6,9 +6,7 @@ import uuid
 import os
 from pathlib import Path
 
-from app.services.browser_service import BrowserService
-from app.schemas.scan import ScanOptions
-from app.services.page_readiness import ReadinessConfig
+
 from app.services.ai.ai_service import ai_service
 from app.services.project_service import project_service, PROJECTS_ROOT
 from app.schemas.test_cases.models import TestCase
@@ -32,32 +30,28 @@ class TestCaseMarkerService:
             logger.error(f"Cannot mark target for {tc.tc_id}: Project missing primary_url")
             return None
 
-        # 1. Run a background scan to get the screenshot and layout
-        options = ScanOptions(url=project.primary_url, headless=True)
-        readiness_config = ReadinessConfig(
-            max_wait_seconds=settings.readiness_max_wait_seconds,
-            final_delay_seconds=settings.readiness_final_delay_seconds,
-            wait_for_videos=settings.readiness_wait_for_videos,
-            videos_timeout_ms=settings.readiness_videos_timeout_ms,
-            navigation_wait_strategy=settings.readiness_navigation_wait_strategy,
-            enable_scroll_discovery=settings.readiness_enable_scroll_discovery,
-            scroll_step_pixels=settings.readiness_scroll_step_pixels,
-            scroll_pause_ms=settings.readiness_scroll_pause_ms,
-            max_scroll_iterations=settings.readiness_max_scroll_iterations,
-        )
-
         try:
-            service = BrowserService()
-            result = service.scan_url(options, readiness_config=readiness_config)
+            # 1. Read the screenshot and layout generated during execution
+            scripts_dir = PROJECTS_ROOT / project_id / "scripts" / "generated"
+            screenshot_path = scripts_dir / "target_screenshot.png"
+            layout_path = scripts_dir / "target_layout.json"
             
-            screenshot_bytes = result.get("screenshot_bytes")
-            analysis = result.get("analysis")
-            
-            if not screenshot_bytes or not analysis:
-                logger.warning(f"Scan failed to return screenshot or analysis for {tc.tc_id}")
+            if not screenshot_path.exists() or not layout_path.exists():
+                logger.warning(f"Target marker assets not found for {tc.tc_id}. Did the execution finish?")
                 return None
-
-            layout_json_str = analysis.model_dump_json()
+                
+            with open(screenshot_path, "rb") as f:
+                screenshot_bytes = f.read()
+                
+            with open(layout_path, "r", encoding="utf-8") as f:
+                layout_json_str = f.read()
+                
+            # Clean up the assets
+            try:
+                screenshot_path.unlink(missing_ok=True)
+                layout_path.unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning(f"Failed to clean up target assets: {e}")
 
             # 2. Use AI to identify the target bounding box
             raw_ai_response = ai_service.generate_text(

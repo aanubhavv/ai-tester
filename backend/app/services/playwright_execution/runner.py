@@ -76,9 +76,148 @@ export default defineConfig({
                 with open(config_path, "w", encoding="utf-8") as f:
                     f.write(config_content.strip())
             
+            exec_file_name = f"{tc.id}_exec.spec.ts"
+            exec_file_path = scripts_dir / exec_file_name
+
             # We use a single string command to avoid Windows shell list-argument drops
             def _run_playwright():
-                cmd_str = f"npx --yes playwright test {file_path.name} --reporter=json --headed"
+                # Inject layout extraction into the script
+                with open(file_path, "r", encoding="utf-8") as f:
+                    original_script = f.read()
+                    
+                injection = """
+
+// --- AI Tester Injected Layout Extraction ---
+test.afterEach(async ({ page }) => {
+  try {
+    // 0. Initial network idle
+    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+    
+    await page.evaluate(async () => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      
+      // 1. Wait for fonts
+      await document.fonts.ready.catch(() => {});
+      
+      // 2. Wait for images
+      const imgTimeout = Date.now() + 10000;
+      while(Date.now() < imgTimeout) {
+        const images = Array.from(document.images);
+        if (images.every(img => img.complete)) break;
+        await sleep(300);
+      }
+      
+      // 3. Wait for videos
+      const vidTimeout = Date.now() + 8000;
+      while(Date.now() < vidTimeout) {
+        const videos = Array.from(document.querySelectorAll('video'));
+        const relevant = videos.filter(v => v.preload !== 'none' || v.readyState >= 2);
+        if (relevant.every(v => v.readyState >= 2)) break;
+        await sleep(300);
+      }
+      
+      // 4. DOM Stability
+      let domStableCount = 0;
+      let lastDomLength = -1;
+      const domTimeout = Date.now() + 10000;
+      while(Date.now() < domTimeout) {
+        const currentLength = document.querySelectorAll('*').length;
+        if (currentLength === lastDomLength) {
+          domStableCount++;
+          if (domStableCount >= 3) break;
+        } else {
+          domStableCount = 0;
+          lastDomLength = currentLength;
+        }
+        await sleep(300);
+      }
+
+      // 5. Layout Stability
+      let layoutStableCount = 0;
+      let lastScrollHeight = -1;
+      const layoutTimeout = Date.now() + 10000;
+      while(Date.now() < layoutTimeout) {
+        const currentHeight = document.documentElement.scrollHeight;
+        if (currentHeight === lastScrollHeight) {
+          layoutStableCount++;
+          if (layoutStableCount >= 3) break;
+        } else {
+          layoutStableCount = 0;
+          lastScrollHeight = currentHeight;
+        }
+        await sleep(300);
+      }
+
+      // 6. Scroll Discovery (trigger lazy-loads)
+      const scrollStep = 800;
+      const scrollPause = 400;
+      const maxScrolls = 25;
+      let scrollY = 0;
+      let scrollStableCount = 0;
+      for (let i = 0; i < maxScrolls; i++) {
+        window.scrollBy(0, scrollStep);
+        scrollY += scrollStep;
+        await sleep(scrollPause);
+        
+        const newHeight = document.documentElement.scrollHeight;
+        if (scrollY >= newHeight || (window.innerHeight + window.scrollY) >= newHeight) {
+          scrollStableCount++;
+          if (scrollStableCount >= 2) break;
+        } else {
+          scrollStableCount = 0;
+        }
+      }
+      // Scroll back to top safely
+      window.scrollTo(0, 0);
+      await sleep(500);
+    }).catch(() => {});
+    
+    // 7. Skeletons / Loaders
+    const skeletonSelectors = ['.skeleton', '.shimmer', '.loading', '.loader', '.spinner', '[aria-busy="true"]', '.placeholder-glow', '.placeholder-wave', '.ant-skeleton', '.MuiSkeleton-root', '.v-skeleton-loader'];
+    for (const sel of skeletonSelectors) {
+      try {
+        const count = await page.locator(sel).count();
+        if (count > 0) {
+          await page.waitForSelector(sel, { state: 'hidden', timeout: 5000 }).catch(() => {});
+        }
+      } catch(e) {}
+    }
+    
+    // 8. Final delay
+    await page.waitForTimeout(500);
+
+    // Capture screenshot and layout
+    await page.screenshot({ path: 'target_screenshot.png', fullPage: true });
+    const layout = await page.evaluate(() => {
+      const elements = document.querySelectorAll('*');
+      const layoutArray = [];
+      for (const el of elements) {
+        if (!el.id && el.classList.length === 0) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        layoutArray.push({
+          tag: el.tagName.toLowerCase(),
+          id: el.id || null,
+          classes: Array.from(el.classList),
+          x: Math.round(rect.x + window.scrollX),
+          y: Math.round(rect.y + window.scrollY),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height)
+        });
+      }
+      return { elements: layoutArray };
+    });
+    const fs = require('fs');
+    fs.writeFileSync('target_layout.json', JSON.stringify(layout));
+  } catch(e) {
+    console.error("Failed to extract layout:", e);
+  }
+});
+"""
+                with open(exec_file_path, "w", encoding="utf-8") as f:
+                    f.write(original_script + injection)
+
+                cmd_str = f"npx --yes playwright test {exec_file_name} --reporter=json --headed"
                 env = os.environ.copy()
                 env["PLAYWRIGHT_JSON_OUTPUT_NAME"] = "report.json"
                 
@@ -132,6 +271,12 @@ export default defineConfig({
                     report_file.unlink(missing_ok=True)
             elif proc.returncode != 0 and not result_data["error"]:
                 result_data["error"] = "Execution failed but no report.json was generated. Check logs."
+                
+            # Clean up the injected script
+            try:
+                exec_file_path.unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning(f"Failed to clean up {exec_file_path}: {e}")
                 
             return result_data
             

@@ -7,6 +7,8 @@ from playwright.sync_api import sync_playwright
 
 from app.services.ai.ai_service import ai_service
 from app.services.project_service import project_service, PROJECTS_ROOT
+from google.genai import types
+from app.services.ai.prompt_manager import prompt_manager
 from app.schemas.test_cases.models import TestCase
 
 logger = logging.getLogger(__name__)
@@ -14,7 +16,7 @@ logger = logging.getLogger(__name__)
 class ScriptGenerationService:
     """
     Service responsible for generating Playwright scripts using AI
-    by inspecting the target application's DOM.
+    by inspecting the target application's DOM and visual layout.
     """
     
     async def generate_script(self, project_id: str, tc: TestCase) -> Optional[str]:
@@ -22,8 +24,8 @@ class ScriptGenerationService:
         Runs the full pipeline for a single test case:
         1. Launches headless browser.
         2. Visits project primary URL.
-        3. Extracts DOM.
-        4. Calls AI to generate Playwright script.
+        3. Extracts DOM and takes a full-page screenshot.
+        4. Calls AI (with vision) to generate Playwright script.
         5. Saves script.
         """
         project = project_service.get_project(project_id)
@@ -33,6 +35,7 @@ class ScriptGenerationService:
             
         base_url = project.primary_url
         dom_context = ""
+        screenshot_bytes = None
         
         try:
             # 1. Collect Context via Playwright (Sync in thread to avoid Windows ProactorEventLoop issues)
@@ -44,21 +47,27 @@ class ScriptGenerationService:
                         page.goto(base_url, timeout=15000, wait_until="domcontentloaded")
                         page.wait_for_timeout(2000)
                         dom_context = page.evaluate("() => document.body.outerHTML")
+                        screenshot_bytes = page.screenshot(full_page=True)
                         
-                        # Call AI while browser is still open
-                        raw_script = ai_service.generate_text(
+                        # Prepare prompt manually
+                        prompt_str = prompt_manager.get_prompt(
                             task="script_generation/playwright",
-                            context_kwargs={
-                                "tc_id": tc.tc_id,
-                                "title": tc.title,
-                                "preconditions": tc.preconditions or "None",
-                                "test_steps": tc.test_steps,
-                                "expected_result": tc.expected_result,
-                                "base_url": base_url,
-                                "dom_context": dom_context
-                            },
-                            options=None,
-                            use_cache=False
+                            tc_id=tc.tc_id,
+                            title=tc.title,
+                            preconditions=tc.preconditions or "None",
+                            test_steps=tc.test_steps,
+                            expected_result=tc.expected_result,
+                            base_url=base_url,
+                            dom_context=dom_context
+                        )
+                        
+                        image_part = types.Part.from_bytes(data=screenshot_bytes, mime_type="image/png")
+                        
+                        # Call AI with multimodal prompt
+                        raw_script = ai_service.generate_text_raw(
+                            prompt=[prompt_str, image_part],
+                            model_name="gemini-3.1-flash-lite",
+                            options=None
                         )
                         return raw_script
                     except Exception as e:

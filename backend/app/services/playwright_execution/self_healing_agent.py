@@ -69,10 +69,10 @@ Expected Result: {tc.expected_result or 'None'}
 ### Execution Logs:
 {current_result.get("logs", "None")}
 
-Analyze the failure. You may also be provided with a screenshot of the failure state from Playwright.
-1. If the script is broken (e.g. strict selector failing, missing wait, logic error), set `is_website_bug` to false and provide the `fixed_script`.
+Analyze the failure. You are provided with a screenshot of the failure state from Playwright. This screenshot is the most critical piece of evidence. Look at the attached screenshot CAREFULLY.
+1. If the script is broken (e.g. strict selector failing, missing wait, logic error, or the UI has changed), set `is_website_bug` to false and provide the `fixed_script`. **CRITICAL**: Use the visual context from the screenshot to figure out the correct selector. For example, if a button's text changed, read the new text from the screenshot and update your locator in the new script.
    *Important Note on Whitespace/Line Breaks*: Playwright sometimes squashes text around `<br>` or inline tags (e.g., extracting "affordableGLP-1" instead of "affordable GLP-1"). If a failure is due to missing spaces where a line break naturally occurs, this is a SCRIPTing/assertion issue, NOT a website bug. You should fix the script (e.g. by using regex `.toHaveText(/affordable\\s*GLP-1/)` or splitting the assertion) instead of blaming the website.
-2. If the script is perfectly fine and correctly verifying the Expected Result, but the website itself is broken or the feature is missing, set `is_website_bug` to true and explain the bug in `analysis`. Look at the attached screenshot (if any) to confirm the visual state of the website before deciding it is a website bug.
+2. If the script is perfectly fine and correctly verifying the Expected Result, but the website itself is broken or the feature is missing, set `is_website_bug` to true and explain the bug in `analysis`. Look at the attached screenshot to confirm the visual state of the website before deciding it is a website bug.
 
 Return the JSON object according to the schema. 
 If you provide a fixed_script, ensure it is the FULL, valid TypeScript script, ready to run.
