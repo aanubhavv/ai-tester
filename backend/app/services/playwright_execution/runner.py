@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app.services.project_service import PROJECTS_ROOT
 from app.schemas.test_cases.models import TestCase
+from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 def clean_text_for_excel(text: str) -> str:
@@ -185,7 +186,10 @@ test.afterEach(async ({ page }) => {
     
     // 8. Final delay
     await page.waitForTimeout(500);
+"""
 
+                if settings.enable_target_screenshot:
+                    injection += """
     // Capture screenshot and layout
     await page.screenshot({ path: 'target_screenshot.png', fullPage: true });
     const layout = await page.evaluate(() => {
@@ -209,6 +213,9 @@ test.afterEach(async ({ page }) => {
     });
     const fs = require('fs');
     fs.writeFileSync('target_layout.json', JSON.stringify(layout));
+"""
+
+                injection += """
   } catch(e) {
     console.error("Failed to extract layout:", e);
   }

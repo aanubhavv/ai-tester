@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     artifacts_dir: str = "artifacts"
     gemini_api_key: str | None = None
     openrouter_api_key: str | None = None
+    enable_target_screenshot: bool = False
 
     # --- Readiness Engine Settings ---
     # These map directly to ReadinessConfig fields and can be overridden
