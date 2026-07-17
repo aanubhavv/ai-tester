@@ -39,7 +39,8 @@ class ProjectService:
         project = ProjectModel(
             name=data.name,
             description=data.description or "",
-            primary_url=data.primary_url or ""
+            primary_url=data.primary_url or "",
+            max_crawl_pages=data.max_crawl_pages or 5
         )
         
         self._init_project_structure(project.project_id)
