@@ -7,6 +7,7 @@ from app.services.test_generation.coverage_analyzer import coverage_analyzer
 from app.services.test_generation.duplicate_detector import duplicate_detector
 from app.services.test_generation.version_service import version_service
 from app.services.test_generation.export_service import export_service
+from app.services.test_generation.exploration_service import exploration_service
 from app.services.planning.planning_service import planning_service
 
 from app.schemas.test_cases.models import TestCase, TestCaseStatus, CoverageReport
@@ -46,6 +47,14 @@ def generate_test_cases(project_id: str, background_tasks: BackgroundTasks) -> A
             content = knowledge_service.get_document_content(project_id, doc.document_id)
             if content and not content.startswith("[Binary"):
                 docs_content.append(f"--- Document: {doc.title} ---\n{content}\n")
+                
+        # Perform AI Website Exploration
+        try:
+            exploration_summary = exploration_service.explore_website(project_id)
+            if exploration_summary and "No valid primary URL" not in exploration_summary:
+                docs_content.append(f"--- Document: AI Website Exploration ---\n{exploration_summary}\n")
+        except Exception as e:
+            print(f"Website exploration failed: {e}")
         
         docs_context_str = "\n".join(docs_content) if docs_content else "No knowledge base documents."
         

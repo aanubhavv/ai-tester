@@ -6,12 +6,14 @@ class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = ""
     primary_url: Optional[str] = ""
+    max_crawl_pages: Optional[int] = 5
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     primary_url: Optional[str] = None
     project_context: Optional[str] = None
+    max_crawl_pages: Optional[int] = None
 
 class ProjectResponse(BaseModel):
     project_id: str
@@ -19,6 +21,7 @@ class ProjectResponse(BaseModel):
     description: str
     primary_url: str
     project_context: str = ""
+    max_crawl_pages: int = 5
     created_at: datetime
     updated_at: datetime
 
