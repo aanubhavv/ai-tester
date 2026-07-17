@@ -156,4 +156,36 @@ class AIService:
 
         return final_text
 
+    def generate_text_raw(
+        self,
+        prompt: Union[str, list],
+        model_name: str = "gemini-3.1-flash-lite",
+        provider_type: AIProviderType = AIProviderType.GEMINI,
+        options: Optional[AIRequestOptions] = None
+    ) -> str:
+        """
+        Executes a task with a raw prompt (string or list for multimodal) and returns raw text.
+        Bypasses prompt_manager and cache.
+        """
+        provider = provider_manager.get_provider(provider_type)
+        merged_options = options or AIRequestOptions(retries=3)
+        if not merged_options.retries:
+            merged_options.retries = 3
+        
+        def _execute() -> AIResponseContext:
+            return provider.generate_text(
+                prompt=prompt,
+                model=model_name,
+                options=merged_options
+            )
+
+        response_context: AIResponseContext = retry_handler.execute_with_retry(
+            _execute, 
+            max_retries=merged_options.retries if merged_options.retries else 3
+        )
+
+        final_text = str(response_context.data)
+        cost_tracker.record_usage("autonomous_agent_text", response_context.metrics)
+        return final_text
+
 ai_service = AIService()
