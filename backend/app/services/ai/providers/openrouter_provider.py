@@ -1,6 +1,6 @@
 import time
 import json
-from typing import Type, Optional
+from typing import Type, Optional, Union
 from pydantic import BaseModel
 from openai import OpenAI
 
@@ -29,7 +29,7 @@ class OpenRouterProvider(BaseProvider):
 
     def generate_structured(
         self, 
-        prompt: str, 
+        prompt: Union[str, list], 
         schema_class: Type[BaseModel],
         model: str,
         options: Optional[AIRequestOptions] = None
@@ -43,11 +43,20 @@ class OpenRouterProvider(BaseProvider):
         schema_json = schema_class.model_json_schema()
         system_prompt = f"You are a helpful assistant. You must respond with raw, valid JSON that matches the following schema:\n{json.dumps(schema_json)}\nDo not wrap the JSON in markdown code blocks."
         
+        # Extract text if prompt is a list (e.g. from multimodal payloads)
+        final_prompt = ""
+        if isinstance(prompt, list):
+            for item in prompt:
+                if isinstance(item, str):
+                    final_prompt += item + "\n"
+        else:
+            final_prompt = prompt
+            
         response = self.client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": final_prompt}
             ],
             response_format={"type": "json_object"},
             temperature=temp,
@@ -82,7 +91,7 @@ class OpenRouterProvider(BaseProvider):
 
     def generate_text(
         self, 
-        prompt: str, 
+        prompt: Union[str, list], 
         model: str,
         options: Optional[AIRequestOptions] = None
     ) -> AIResponseContext:
@@ -91,10 +100,19 @@ class OpenRouterProvider(BaseProvider):
         temp = options.temperature if options and options.temperature is not None else 0.2
         max_tokens = options.max_tokens if options and options.max_tokens is not None else 8192
         
+        # Extract text if prompt is a list
+        final_prompt = ""
+        if isinstance(prompt, list):
+            for item in prompt:
+                if isinstance(item, str):
+                    final_prompt += item + "\n"
+        else:
+            final_prompt = prompt
+            
         response = self.client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": final_prompt}
             ],
             temperature=temp,
             max_tokens=max_tokens
