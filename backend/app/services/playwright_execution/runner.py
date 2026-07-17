@@ -86,9 +86,22 @@ export default defineConfig({
                 with open(file_path, "r", encoding="utf-8") as f:
                     original_script = f.read()
                     
-                injection = ""
+                injection = """
+// --- AI Tester Injected DOM Capture on Failure ---
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status !== 'passed' && testInfo.status !== 'skipped') {
+    try {
+      const html = await page.content();
+      const fs = require('fs');
+      fs.writeFileSync('failed_dom.html', html);
+    } catch(e) {
+      console.error("Failed to extract DOM on failure:", e);
+    }
+  }
+});
+"""
                 if settings.enable_target_screenshot:
-                    injection = """
+                    injection += """
 
 // --- AI Tester Injected Layout Extraction ---
 test.afterEach(async ({ page }) => {
@@ -280,6 +293,17 @@ test.afterEach(async ({ page }) => {
                 exec_file_path.unlink(missing_ok=True)
             except Exception as e:
                 logger.warning(f"Failed to clean up {exec_file_path}: {e}")
+                
+            # Read and attach DOM snapshot if available
+            dom_file = scripts_dir / "failed_dom.html"
+            if dom_file.exists():
+                try:
+                    with open(dom_file, "r", encoding="utf-8") as f:
+                        result_data["dom_snapshot"] = f.read()
+                except Exception as dom_e:
+                    logger.warning(f"Failed to read failed_dom.html: {dom_e}")
+                finally:
+                    dom_file.unlink(missing_ok=True)
                 
             return result_data
             

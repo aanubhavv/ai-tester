@@ -30,6 +30,15 @@ The following is an excerpt of the DOM structure from the target application (cl
 7. Output ONLY the raw TypeScript code, without markdown wrapping like ```typescript or ```. The script will be directly saved to a `.spec.ts` file.
 8. **Text Verification**: Beware that Playwright's text extraction sometimes squashes text around `<br>` or inline elements. When asserting long strings of text, especially if line breaks might occur, consider using Regex `.toMatch(/.../)` with `\\s*` where line breaks or spaces might exist, or assert smaller substrings instead of exact matches to avoid false negative failures due to missing whitespace.
 
+### EXAMPLES OF AVOIDING COMMON ERRORS
+Example 1 (Timeout / Missing Wait):
+Bad: `await page.locator('.loading-spinner').waitFor();`
+Good: The spinner might not appear instantly. Use `await expect(page.locator('.loading-spinner')).toBeVisible();` or `await page.waitForLoadState('networkidle');` instead of hard waiting for a strict locator.
+
+Example 2 (Strict Mode Violation):
+Bad: `await page.locator('button').click();` (might resolve to multiple elements)
+Good: Use a more specific locator based on the visual text or context, such as `await page.getByRole('button', { name: 'Submit' }).click();` or `await page.locator('button').first().click();`.
+
 ### EXAMPLE OUTPUT FORMAT
 import { test, expect } from '@playwright/test';
 

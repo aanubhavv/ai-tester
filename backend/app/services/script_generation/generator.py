@@ -47,6 +47,8 @@ class ScriptGenerationService:
                         page.goto(base_url, timeout=15000, wait_until="domcontentloaded")
                         page.wait_for_timeout(2000)
                         dom_context = page.evaluate("() => document.body.outerHTML")
+                        if len(dom_context) > 50000:
+                            dom_context = dom_context[:50000] + "\n...[TRUNCATED]"
                         screenshot_bytes = page.screenshot(full_page=True)
                         
                         # Prepare prompt manually
@@ -113,6 +115,8 @@ class ScriptGenerationService:
                         page.goto(base_url, timeout=15000, wait_until="domcontentloaded")
                         page.wait_for_timeout(2000)
                         dom_context = page.evaluate("() => document.body.outerHTML")
+                        if len(dom_context) > 50000:
+                            dom_context = dom_context[:50000] + "\n...[TRUNCATED]"
                         
                         raw_script = ai_service.generate_text(
                             task="script_generation/playwright_improvement",

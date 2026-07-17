@@ -35,6 +35,7 @@ class SelfHealingAgent:
         
         max_retries = 3
         current_result = initial_result
+        attempt_history = []
         
         scripts_dir = PROJECTS_ROOT / project_id / "scripts" / "generated"
         script_path = scripts_dir / f"{tc_id}.spec.ts"
@@ -50,6 +51,17 @@ class SelfHealingAgent:
             with open(script_path, "r", encoding="utf-8") as f:
                 current_script = f.read()
                 
+            dom_snapshot = current_result.get("dom_snapshot", "")
+            if len(dom_snapshot) > 50000:
+                dom_snapshot = dom_snapshot[:50000] + "\n...[TRUNCATED]"
+            
+            history_text = ""
+            if attempt_history:
+                history_text = "\n### Previous Failed Attempts:\n"
+                for i, hist in enumerate(attempt_history):
+                    history_text += f"\nAttempt {i+1} Script:\n```typescript\n{hist['script']}\n```\nAttempt {i+1} Error:\n{hist['error']}\n"
+                history_text += "\nDo NOT repeat the exact same script from previous attempts. Try a different approach (e.g. use different locators, wait for states, etc.).\n"
+
             prompt = f"""
 You are a Senior QA Automation Engineer. A Playwright script has failed during execution.
 
@@ -68,10 +80,20 @@ Expected Result: {tc.expected_result or 'None'}
 
 ### Execution Logs:
 {current_result.get("logs", "None")}
+{f'### DOM Snapshot at Failure (Truncated):\\n```html\\n{dom_snapshot}\\n```' if dom_snapshot else ''}
+{history_text}
+### Examples of good fixes:
+Example 1 (Timeout / Missing Wait):
+Error: TimeoutError: locator('.loading-spinner').waitFor()
+Fix: The spinner might not appear instantly. Use `await expect(page.locator('.loading-spinner')).toBeVisible();` or `await page.waitForLoadState('networkidle');` instead of hard waiting for a strict locator.
+
+Example 2 (Strict Mode Violation):
+Error: strict mode violation: locator('button') resolved to 5 elements.
+Fix: Use a more specific locator based on the visual text or context, such as `await page.getByRole('button', {{ name: 'Submit' }}).click();` or `await page.locator('button').first().click();`.
 
 Analyze the failure. You are provided with a screenshot of the failure state from Playwright. This screenshot is the most critical piece of evidence. Look at the attached screenshot CAREFULLY.
-1. If the script is broken (e.g. strict selector failing, missing wait, logic error, or the UI has changed), set `is_website_bug` to false and provide the `fixed_script`. **CRITICAL**: Use the visual context from the screenshot to figure out the correct selector. For example, if a button's text changed, read the new text from the screenshot and update your locator in the new script.
-   *Important Note on Whitespace/Line Breaks*: Playwright sometimes squashes text around `<br>` or inline tags (e.g., extracting "affordableGLP-1" instead of "affordable GLP-1"). If a failure is due to missing spaces where a line break naturally occurs, this is a SCRIPTing/assertion issue, NOT a website bug. You should fix the script (e.g. by using regex `.toHaveText(/affordable\\s*GLP-1/)` or splitting the assertion) instead of blaming the website.
+1. If the script is broken (e.g. strict selector failing, missing wait, logic error, or the UI has changed), set `is_website_bug` to false and provide the `fixed_script`. **CRITICAL**: Use the visual context from the screenshot and the DOM Snapshot to figure out the correct selector. For example, if a button's text changed, read the new text from the screenshot and update your locator in the new script.
+   *Important Note on Whitespace/Line Breaks*: Playwright sometimes squashes text around `<br>` or inline tags (e.g., extracting "affordableGLP-1" instead of "affordable GLP-1"). If a failure is due to missing spaces where a line break naturally occurs, this is a SCRIPTing/assertion issue, NOT a website bug. You should fix the script (e.g. by using regex `.toHaveText(/affordable\\\\s*GLP-1/)` or splitting the assertion) instead of blaming the website.
 2. If the script is perfectly fine and correctly verifying the Expected Result, but the website itself is broken or the feature is missing, set `is_website_bug` to true and explain the bug in `analysis`. Look at the attached screenshot to confirm the visual state of the website before deciding it is a website bug.
 
 Return the JSON object according to the schema. 
@@ -154,6 +176,7 @@ If you provide a fixed_script, ensure it is the FULL, valid TypeScript script, r
                     return
                 else:
                     # Failed again, feed the new result into the next iteration
+                    attempt_history.append({"script": clean_script, "error": new_result.get("error", "")})
                     current_result = new_result
                     
             except Exception as e:
