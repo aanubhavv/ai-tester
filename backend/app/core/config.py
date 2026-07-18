@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     artifacts_dir: str = "artifacts"
     gemini_api_key: str | None = None
     openrouter_api_key: str | None = None
+    aws_bedrock_api_key: str | None = None
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    aws_session_token: str | None = None
+    aws_region_name: str | None = None
     enable_target_screenshot: bool = False
 
     # --- Readiness Engine Settings ---

@@ -4,10 +4,10 @@ from pydantic import BaseModel, Field
 
 class AIProviderType(str, Enum):
     OPENAI = "openai"
-    ANTHROPIC = "anthropic"
     GEMINI = "gemini"
     OPENROUTER = "openrouter"
     OLLAMA = "ollama"
+    AWS_BEDROCK = "aws_bedrock"
 
 class TaskConfiguration(BaseModel):
     """Configuration mapping a specific task to a provider and model."""

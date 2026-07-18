@@ -30,6 +30,12 @@ class ProviderManager:
             provider = OpenRouterProvider()
             self._providers[provider_type] = provider
             return provider
+            
+        elif provider_type == AIProviderType.AWS_BEDROCK:
+            from app.services.ai.providers.aws_bedrock_provider import AWSBedrockProvider
+            provider = AWSBedrockProvider()
+            self._providers[provider_type] = provider
+            return provider
 
         raise NotImplementedError(f"Provider {provider_type} is not yet implemented.")
 

@@ -50,6 +50,11 @@ class AIConfig:
             model="gemini-3.1-flash-lite",
             temperature=0.2
         )
+        # "self_healing": TaskConfiguration(
+        #     provider=AIProviderType.AWS_BEDROCK,
+        #     model="google.gemma-3-12b-it",
+        #     temperature=0.2
+        # )
     }
 
     @classmethod
