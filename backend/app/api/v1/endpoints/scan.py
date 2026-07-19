@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -15,7 +16,7 @@ from app.models.scan_models import ScanStatus
 from app.models.execution_models import ExecutionType, ExecutionStatus
 from app.schemas.execution import ExecutionCreate
 from app.services.execution_service import execution_service
-from app.services.project_service import project_service, PROJECTS_ROOT
+from app.services.project_service import project_service
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -24,21 +25,6 @@ router = APIRouter()
 
 
 def _validate_url(url: str) -> str | None:
-    """
-    Validate that a URL is well-formed and has a supported scheme.
-
-    Returns None if valid, or an error message string if invalid.
-
-    Why a standalone function instead of Pydantic's HttpUrl?
-    We moved from a JSON body (where Pydantic validates automatically)
-    to query params (where FastAPI gives us a raw string). This function
-    provides equivalent validation without pulling in Pydantic's URL
-    type for a single check.
-
-    Why not in BrowserService?
-    BrowserService trusts its callers — it's an internal service, not
-    an API boundary. Validation belongs at the edge (the endpoint).
-    """
     try:
         parsed = urlparse(url)
     except Exception:
@@ -67,17 +53,6 @@ def _build_report(
     result: dict,
     app_version: str,
 ) -> dict:
-    """
-    Build the master report dict from a scan result.
-
-    This is a helper function that constructs the ScanReportSchema
-    from the raw BrowserService result dict. It's a function (not a method)
-    because report construction is a pure transformation — it doesn't
-    need access to any service instance.
-
-    Returns:
-        A dict suitable for json.dump() and for ScanReportSchema validation.
-    """
     report = ScanReportSchema(
         scan_info=ScanInfoSchema(
             scan_id=scan_id,
@@ -102,34 +77,10 @@ def _build_report(
 
 
 @router.post("/scan", response_model=ScanResponse)
-def scan_website(
+async def scan_website(
     request: Request,
     body: ScanRequest,
 ):
-    """
-    Scan a website, persist artifacts, and return scan results.
-
-    This endpoint orchestrates the full scan lifecycle:
-    1. Validate the URL parameter
-    2. Generate a unique scan ID
-    3. Build a ScanOptions object from the request body
-    4. Delegate to BrowserService for all browser work
-    5. Persist artifacts via ArtifactService (screenshot, analysis, report, log)
-    6. Return the result with scan_id for future retrieval
-
-    Request Body:
-    - **url**: The target URL to scan (required).
-    - **headed**: Whether to show the browser window (optional, default false).
-
-    Error handling strategy:
-    - Invalid URL → 422 with descriptive message.
-    - ScanError (from BrowserService) → 502 with descriptive message.
-      502 (Bad Gateway) is semantically correct: the scanner acts as a
-      gateway to the target website, and the error occurred while trying
-      to reach or process the upstream page.
-    - Everything else → Falls through to the global exception handler (500)
-    """
-    # --- Validate URL ---
     validation_error = _validate_url(body.url)
     if validation_error:
         return JSONResponse(
@@ -140,16 +91,14 @@ def scan_website(
             },
         )
 
-    # --- Ensure Project Exists ---
     project_id = body.project_id
     if not project_id:
         project_id = "default_project"
-        if not project_service.get_project(project_id):
+        if not await project_service.get_project(project_id):
             from app.schemas.project import ProjectCreate
-            project_service.create_project(ProjectCreate(name="Default Project", description="Auto-created default project"))
+            await project_service.create_project(ProjectCreate(name="Default Project", description="Auto-created default project"))
 
-    # --- Generate execution/scan identity ---
-    execution = execution_service.create_execution(ExecutionCreate(
+    execution = await execution_service.create_execution(ExecutionCreate(
         project_id=project_id,
         type=ExecutionType.SCAN,
         metadata={"url": body.url}
@@ -158,15 +107,9 @@ def scan_website(
     
     scan_log = ScanLogCollector()
     
-    # Store artifacts inside the execution directory
-    artifacts_path = str(PROJECTS_ROOT / project_id / "executions" / scan_id / "artifacts")
-    artifact_service = ArtifactService(artifacts_dir=artifacts_path)
+    artifact_service = ArtifactService()
     started_at = datetime.now().isoformat()
 
-    # --- Build per-request options ---
-    # ScanOptions bundles all per-request caller choices.
-    # Future params (viewport, locale, proxy, etc.) get added here
-    # without changing the BrowserService signature.
     options = ScanOptions(
         url=body.url,
         headless=not body.headed,
@@ -177,9 +120,6 @@ def scan_website(
     scan_log.add(f"Browser mode: {options.browser_mode}")
 
     try:
-        # Build readiness config from environment settings.
-        # The full ReadinessConfig has many options with sensible defaults;
-        # we only override the values exposed in Settings for .env tuning.
         readiness_config = ReadinessConfig(
             max_wait_seconds=settings.readiness_max_wait_seconds,
             final_delay_seconds=settings.readiness_final_delay_seconds,
@@ -194,30 +134,21 @@ def scan_website(
 
         scan_log.add("Browser launching...")
         service = BrowserService()
-        result = service.scan_url(options, readiness_config=readiness_config)
+        result = await asyncio.to_thread(service.scan_url, options, readiness_config=readiness_config)
         scan_log.add("Browser scan completed")
 
-        # --- Persist artifacts ---
         completed_at = datetime.now().isoformat()
         duration_seconds = result["load_time"]
 
-        scan_log.add("Creating artifact directory...")
-        artifact_service.create_scan_directory(scan_id)
-
-        # Save screenshot
         scan_log.add("Saving screenshot...")
-        artifact_service.save_screenshot(scan_id, result["screenshot_bytes"])
+        screenshot_url = await artifact_service.save_screenshot(scan_id, result["screenshot_bytes"])
 
-        # Save individual analysis artifacts.
-        # result["analysis"] is a Pydantic AnalysisResponse — convert to dict
-        # for individual file writes.
         analysis_dict = result["analysis"].model_dump(mode="json")
         readiness_dict = result.get("readiness")
         scan_log.add("Saving analysis artifacts...")
-        artifact_service.save_analysis_artifacts(scan_id, analysis_dict, readiness_dict)
+        await artifact_service.save_analysis_artifacts(scan_id, analysis_dict, readiness_dict)
 
-        # Build and save the master report
-        app_version = request.app.version
+        app_version = getattr(request.app, "version", "unknown")
         report = _build_report(
             scan_id=scan_id,
             url=body.url,
@@ -230,19 +161,14 @@ def scan_website(
             app_version=app_version,
         )
         scan_log.add("Saving master report...")
-        artifact_service.save_report(scan_id, report)
+        await artifact_service.save_report(scan_id, report)
 
-        # Save scan log (last, since we want to capture all events)
         scan_log.add("Scan completed successfully")
-        artifact_service.save_scan_log(scan_id, scan_log.to_serializable())
+        await artifact_service.save_scan_log(scan_id, scan_log.to_serializable())
 
-        # Update execution status
-        execution_service.update_status(project_id, scan_id, ExecutionStatus.COMPLETED)
+        await execution_service.update_status(project_id, scan_id, ExecutionStatus.COMPLETED)
 
         logger.info(f"Scan artifacts saved for {scan_id}")
-
-        # Build screenshot URL for the response
-        screenshot_url = f"{settings.api_prefix}/scans/{scan_id}/screenshot"
 
         return ScanResponse(
             scan_id=scan_id,
@@ -262,11 +188,8 @@ def scan_website(
     except ScanError as exc:
         logger.warning(f"Scan failed for {body.url}: {exc}")
 
-        # Persist what we can for failed scans — the log is valuable
-        # for debugging why the scan failed.
         scan_log.add(f"Scan failed: {exc}")
         try:
-            artifact_service.create_scan_directory(scan_id)
             failed_report = {
                 "scan_info": {
                     "scan_id": scan_id,
@@ -279,13 +202,12 @@ def scan_website(
                 },
                 "error": str(exc),
             }
-            artifact_service.save_report(scan_id, failed_report)
-            artifact_service.save_scan_log(scan_id, scan_log.to_serializable())
+            await artifact_service.save_report(scan_id, failed_report)
+            await artifact_service.save_scan_log(scan_id, scan_log.to_serializable())
         except Exception as persist_exc:
             logger.error(f"Failed to persist failed scan artifacts: {persist_exc}")
 
-        # Update execution status
-        execution_service.update_status(project_id, scan_id, ExecutionStatus.FAILED)
+        await execution_service.update_status(project_id, scan_id, ExecutionStatus.FAILED)
 
         return JSONResponse(
             status_code=502,
@@ -295,4 +217,3 @@ def scan_website(
                 "detail": str(exc),
             },
         )
-

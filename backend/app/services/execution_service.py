@@ -1,26 +1,20 @@
-import json
-from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
 
 from app.models.execution_models import ExecutionModel, ExecutionStatus
 from app.schemas.execution import ExecutionCreate
-from app.services.project_service import PROJECTS_ROOT
+from app.db.mongodb import get_database
 
 class ExecutionService:
     """
-    Service for managing Executions.
-    Executions are stored as JSON files within their respective directories
-    under `projects/<project_id>/executions/<execution_id>/`.
+    Service for managing Executions using MongoDB.
     """
 
-    def _get_execution_dir(self, project_id: str, execution_id: str) -> Path:
-        return PROJECTS_ROOT / project_id / "executions" / execution_id
+    @property
+    def collection(self):
+        return get_database()["executions"]
 
-    def _get_execution_file(self, project_id: str, execution_id: str) -> Path:
-        return self._get_execution_dir(project_id, execution_id) / "execution.json"
-
-    def create_execution(self, data: ExecutionCreate) -> ExecutionModel:
+    async def create_execution(self, data: ExecutionCreate) -> ExecutionModel:
         """Create a new execution."""
         execution = ExecutionModel(
             project_id=data.project_id,
@@ -28,56 +22,38 @@ class ExecutionService:
             metadata=data.metadata
         )
         
-        exec_dir = self._get_execution_dir(execution.project_id, execution.execution_id)
-        exec_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create subdirectories for artifacts specific to this execution
-        (exec_dir / "artifacts").mkdir(exist_ok=True)
-        
-        self.save_execution(execution)
+        await self.collection.insert_one(execution.model_dump())
         return execution
 
-    def save_execution(self, execution: ExecutionModel):
-        """Save execution state to disk."""
-        exec_file = self._get_execution_file(execution.project_id, execution.execution_id)
-        with open(exec_file, "w") as f:
-            f.write(execution.model_dump_json(indent=2))
+    async def save_execution(self, execution: ExecutionModel):
+        """Save execution state to MongoDB."""
+        await self.collection.update_one(
+            {"execution_id": execution.execution_id},
+            {"$set": execution.model_dump()},
+            upsert=True
+        )
 
-    def get_execution(self, project_id: str, execution_id: str) -> Optional[ExecutionModel]:
+    async def get_execution(self, project_id: str, execution_id: str) -> Optional[ExecutionModel]:
         """Retrieve an execution by ID."""
-        exec_file = self._get_execution_file(project_id, execution_id)
-        if not exec_file.exists():
+        data = await self.collection.find_one({
+            "project_id": project_id,
+            "execution_id": execution_id
+        })
+        if not data:
             return None
-            
-        with open(exec_file, "r") as f:
-            data = json.load(f)
-            return ExecutionModel(**data)
+        return ExecutionModel(**data)
 
-    def list_executions(self, project_id: str) -> List[ExecutionModel]:
+    async def list_executions(self, project_id: str) -> List[ExecutionModel]:
         """List all executions for a project."""
-        executions_dir = PROJECTS_ROOT / project_id / "executions"
+        cursor = self.collection.find({"project_id": project_id}).sort("started_at", -1)
         executions = []
-        if not executions_dir.exists():
-            return executions
-            
-        for entry in executions_dir.iterdir():
-            if entry.is_dir():
-                exec_file = entry / "execution.json"
-                if exec_file.exists():
-                    try:
-                        with open(exec_file, "r") as f:
-                            data = json.load(f)
-                            executions.append(ExecutionModel(**data))
-                    except Exception as e:
-                        print(f"Error loading execution from {exec_file}: {e}")
-                        
-        # Sort by started_at descending
-        executions.sort(key=lambda e: e.started_at, reverse=True)
+        async for doc in cursor:
+            executions.append(ExecutionModel(**doc))
         return executions
 
-    def update_status(self, project_id: str, execution_id: str, status: ExecutionStatus) -> Optional[ExecutionModel]:
+    async def update_status(self, project_id: str, execution_id: str, status: ExecutionStatus) -> Optional[ExecutionModel]:
         """Update the status of an execution."""
-        execution = self.get_execution(project_id, execution_id)
+        execution = await self.get_execution(project_id, execution_id)
         if not execution:
             return None
             
@@ -85,7 +61,7 @@ class ExecutionService:
         if status in (ExecutionStatus.COMPLETED, ExecutionStatus.FAILED):
             execution.completed_at = datetime.utcnow()
             
-        self.save_execution(execution)
+        await self.save_execution(execution)
         return execution
 
 # Global instance

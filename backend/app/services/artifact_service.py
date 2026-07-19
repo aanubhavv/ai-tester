@@ -1,397 +1,188 @@
-"""
-Artifact Service
-================
-
-The single point of contact between the application and the filesystem
-for all scan-related persistence.
-
-This service owns the entire artifact directory tree:
-
-    artifacts/
-        scans/
-            scan_<id>/
-                report.json            ← master report (canonical scan record)
-            analysis/
-                metadata.json      ← individual analysis modules
-                readiness.json
-                console.json
-                network.json
-                assets.json
-                forms.json
-                links.json
-                dom.json
-            media/
-                screenshot.png     ← full-page screenshot
-            logs/
-                scan.log           ← lifecycle log (JSON lines)
-        comparisons/
-            comp_<id>/
-                report.json        ← structured regression report
-                diff.png           ← composite diff image
-
-Design principles:
-    - NO other service or endpoint performs filesystem I/O for scan data.
-    - BrowserService returns bytes/dicts in memory; ArtifactService writes them.
-    - All paths are derived from scan_id — no path construction outside this file.
-    - Writes are atomic where possible (write to temp, rename).
-    - All JSON is human-readable (indent=2, ensure_ascii=False).
-
-Future extensibility:
-    The directory structure supports additional outputs (AI reports, HAR files,
-    trace files, videos) by simply adding new subdirectories or files. No
-    existing code needs to change.
-"""
-
-from __future__ import annotations
-
-import json
 import logging
-from pathlib import Path
-from typing import Any
+from app.db.imagekit_config import get_imagekit
+from imagekitio.models.UploadFileRequestOptions import UploadFileRequestOptions
+import base64
+from typing import Any, Optional
+from datetime import datetime
+
+from app.db.mongodb import get_database
 
 logger = logging.getLogger(__name__)
 
-
 class ArtifactService:
     """
-    Manages creation, storage, and retrieval of scan artifact bundles.
-
-    Each scan gets its own directory under the artifacts root. This service
-    handles the full lifecycle: creating the directory tree, writing every
-    file type, and reading them back for the API.
-
-    Args:
-        artifacts_dir: Root directory for all scan artifacts.
-                       Defaults to "artifacts" (relative to the backend
-                       working directory). Created automatically if missing.
+    Manages creation, storage, and retrieval of scan artifacts using MongoDB
+    for structured data and Cloudinary for media.
     """
 
-    def __init__(self, artifacts_dir: str = "artifacts") -> None:
-        self._root = Path(artifacts_dir)
-        self._root.mkdir(parents=True, exist_ok=True)
+    def __init__(self, artifacts_dir: str = "artifacts"):
+        # We no longer use local filesystem but keep the parameter for compatibility
+        self._artifacts_dir = artifacts_dir
+
+    @property
+    def scans_collection(self):
+        return get_database()["scans"]
+
+    @property
+    def comparisons_collection(self):
+        return get_database()["comparisons"]
 
     @classmethod
     def get_for_scan(cls, scan_id: str) -> "ArtifactService":
-        """
-        Finds the correct ArtifactService for a given scan_id.
-        Searches both the legacy artifacts/ directory and the new projects/ hierarchy.
-        """
-        from app.core.config import settings
-        from app.services.project_service import PROJECTS_ROOT
+        return cls()
 
-        if scan_id:
-            # Check old location
-            old_dir = Path(settings.artifacts_dir) / "scans" / scan_id
-            if old_dir.exists():
-                return cls(artifacts_dir=settings.artifacts_dir)
-                
-            # Check new location (projects/<project_id>/executions/<scan_id>/artifacts)
-            if PROJECTS_ROOT.exists():
-                for project_dir in PROJECTS_ROOT.iterdir():
-                    if project_dir.is_dir():
-                        exec_dir = project_dir / "executions" / scan_id
-                        if exec_dir.exists():
-                            return cls(artifacts_dir=str(exec_dir / "artifacts"))
-                            
-        return cls(artifacts_dir=settings.artifacts_dir)
+    async def create_scan_directory(self, scan_id: str) -> None:
+        """No-op for MongoDB."""
+        pass
 
-    # ------------------------------------------------------------------
-    # Path helpers (private)
-    # ------------------------------------------------------------------
+    async def create_comparison_directory(self, comparison_id: str) -> None:
+        """No-op for MongoDB."""
+        pass
 
-    def _scan_dir(self, scan_id: str) -> Path:
-        """Root directory for a single scan's artifacts."""
-        return self._root / "scans" / scan_id
+    async def save_screenshot(self, scan_id: str, screenshot_bytes: bytes) -> str:
+        """Upload to ImageKit and return the URL."""
+        if not screenshot_bytes:
+            return ""
+        
+        imagekit = get_imagekit()
+        if not imagekit:
+            logger.warning("ImageKit is not configured, skipping screenshot upload")
+            return ""
 
-    def _analysis_dir(self, scan_id: str) -> Path:
-        return self._scan_dir(scan_id) / "analysis"
+        b64_file = base64.b64encode(screenshot_bytes).decode('utf-8')
+        result = imagekit.upload(
+            file=b64_file,
+            file_name=f"scan_{scan_id}_screenshot.png",
+            options=UploadFileRequestOptions(
+                folder=f"/scans/{scan_id}/", 
+                use_unique_file_name=False
+            )
+        )
+        url = result.url
+        
+        # Save URL in scan document
+        await self.scans_collection.update_one(
+            {"scan_id": scan_id},
+            {"$set": {"screenshot_url": url}},
+            upsert=True
+        )
+        logger.info(f"Saved screenshot to ImageKit: {url}")
+        return url
 
-    def _media_dir(self, scan_id: str) -> Path:
-        return self._scan_dir(scan_id) / "media"
-
-    def _logs_dir(self, scan_id: str) -> Path:
-        return self._scan_dir(scan_id) / "logs"
-
-    def _comparison_dir(self, comparison_id: str) -> Path:
-        """Root directory for a single visual comparison."""
-        return self._root / "comparisons" / comparison_id
-
-    # ------------------------------------------------------------------
-    # Directory creation
-    # ------------------------------------------------------------------
-
-    def create_scan_directory(self, scan_id: str) -> Path:
-        """
-        Create the full directory tree for a scan.
-
-        Creates:
-            artifacts/scans/<scan_id>/
-            artifacts/scans/<scan_id>/analysis/
-            artifacts/scans/<scan_id>/media/
-            artifacts/scans/<scan_id>/logs/
-
-        Returns:
-            Path to the scan's root directory.
-
-        Raises:
-            OSError: If directory creation fails (permissions, disk full, etc.).
-        """
-        scan_dir = self._scan_dir(scan_id)
-
-        # Create all subdirectories in one pass
-        for subdir in (self._analysis_dir(scan_id),
-                       self._media_dir(scan_id),
-                       self._logs_dir(scan_id)):
-            subdir.mkdir(parents=True, exist_ok=True)
-
-        logger.info(f"Created artifact directory: {scan_dir}")
-        return scan_dir
-
-    def create_comparison_directory(self, comparison_id: str) -> Path:
-        """
-        Create the directory for a visual comparison.
-
-        Creates: artifacts/comparisons/<comparison_id>/
-        """
-        comp_dir = self._comparison_dir(comparison_id)
-        comp_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Created comparison directory: {comp_dir}")
-        return comp_dir
-
-    # ------------------------------------------------------------------
-    # Write operations
-    # ------------------------------------------------------------------
-
-    def _write_json(self, path: Path, data: Any) -> None:
-        """
-        Write data to a JSON file with consistent formatting.
-
-        All JSON files use:
-        - indent=2 for human readability
-        - ensure_ascii=False for proper unicode support
-        - UTF-8 encoding
-
-        Args:
-            path: Absolute path to the output file.
-            data: Any JSON-serialisable Python object.
-        """
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
-        logger.debug(f"Wrote JSON artifact: {path}")
-
-    def save_screenshot(self, scan_id: str, screenshot_bytes: bytes) -> Path:
-        """
-        Save a screenshot PNG to the scan's media directory.
-
-        Args:
-            scan_id: The scan identifier.
-            screenshot_bytes: Raw PNG bytes from Playwright's page.screenshot().
-
-        Returns:
-            Path to the saved screenshot file.
-        """
-        screenshot_path = self._media_dir(scan_id) / "screenshot.png"
-        screenshot_path.write_bytes(screenshot_bytes)
-        logger.info(f"Saved screenshot: {screenshot_path}")
-        return screenshot_path
-
-    def save_analysis_artifacts(
+    async def save_analysis_artifacts(
         self,
         scan_id: str,
         analysis_data: dict[str, Any],
         readiness_data: dict[str, Any] | None = None,
     ) -> None:
-        """
-        Save individual analysis category files.
+        """Save analysis and readiness to MongoDB."""
+        update_doc = {"analysis": analysis_data}
+        if readiness_data:
+            update_doc["readiness"] = readiness_data
+            
+        await self.scans_collection.update_one(
+            {"scan_id": scan_id},
+            {"$set": update_doc},
+            upsert=True
+        )
+        logger.info(f"Saved analysis artifacts for {scan_id}")
 
-        Each top-level key in analysis_data becomes its own JSON file:
-            analysis_data["metadata"] → analysis/metadata.json
-            analysis_data["console"]  → analysis/console.json
-            etc.
+    async def save_report(self, scan_id: str, report: dict[str, Any]) -> None:
+        """Save master report to MongoDB."""
+        await self.scans_collection.update_one(
+            {"scan_id": scan_id},
+            {"$set": {"report": report}},
+            upsert=True
+        )
+        logger.info(f"Saved master report for {scan_id}")
 
-        Readiness data is saved separately as analysis/readiness.json
-        because it comes from a different engine (PageReadinessEngine)
-        than the analysis categories (AnalysisService).
+    async def save_scan_log(self, scan_id: str, log_entries: list[dict[str, str]]) -> None:
+        """Save scan lifecycle log to MongoDB."""
+        await self.scans_collection.update_one(
+            {"scan_id": scan_id},
+            {"$set": {"logs": log_entries}},
+            upsert=True
+        )
+        logger.info(f"Saved scan log for {scan_id}")
 
-        This granular storage allows future AI modules to load only
-        the categories they need instead of parsing the entire report.
+    async def save_diff_image(self, comparison_id: str, diff_bytes: bytes) -> str:
+        """Upload diff image to ImageKit."""
+        if not diff_bytes:
+            return ""
+            
+        imagekit = get_imagekit()
+        if not imagekit:
+            logger.warning("ImageKit is not configured, skipping diff upload")
+            return ""
 
-        Args:
-            scan_id: The scan identifier.
-            analysis_data: Dict with keys matching analysis categories.
-            readiness_data: Optional readiness report dict.
-        """
-        analysis_dir = self._analysis_dir(scan_id)
+        b64_file = base64.b64encode(diff_bytes).decode('utf-8')
+        result = imagekit.upload(
+            file=b64_file,
+            file_name=f"comparison_{comparison_id}_diff.png",
+            options=UploadFileRequestOptions(
+                folder=f"/comparisons/{comparison_id}/", 
+                use_unique_file_name=False
+            )
+        )
+        url = result.url
+        
+        await self.comparisons_collection.update_one(
+            {"comparison_id": comparison_id},
+            {"$set": {"diff_image_url": url}},
+            upsert=True
+        )
+        logger.info(f"Saved diff image to ImageKit: {url}")
+        return url
 
-        # Map analysis keys to filenames
-        # The analysis response has keys like "metadata", "headings", "images", etc.
-        # We write each as its own file for granular access.
-        for key, value in analysis_data.items():
-            filename = f"{key}.json"
-            self._write_json(analysis_dir / filename, value)
+    async def save_comparison_report(self, comparison_id: str, report: dict[str, Any]) -> None:
+        """Save comparison report to MongoDB."""
+        await self.comparisons_collection.update_one(
+            {"comparison_id": comparison_id},
+            {"$set": {"report": report}},
+            upsert=True
+        )
+        logger.info(f"Saved comparison report for {comparison_id}")
 
-        if readiness_data is not None:
-            self._write_json(analysis_dir / "readiness.json", readiness_data)
+    async def get_scan_report(self, scan_id: str) -> dict[str, Any] | None:
+        """Load and return the master report for a scan."""
+        doc = await self.scans_collection.find_one({"scan_id": scan_id}, {"report": 1})
+        if doc and "report" in doc:
+            return doc["report"]
+        return None
 
-        logger.info(f"Saved {len(analysis_data)} analysis artifacts for {scan_id}")
+    async def get_screenshot_path(self, scan_id: str) -> Optional[str]:
+        """Return the screenshot Cloudinary URL."""
+        doc = await self.scans_collection.find_one({"scan_id": scan_id}, {"screenshot_url": 1})
+        if doc and "screenshot_url" in doc:
+            return doc["screenshot_url"]
+        return None
 
-    def save_report(self, scan_id: str, report: dict[str, Any]) -> Path:
-        """
-        Save the master report.json for a scan.
+    async def get_diff_image_path(self, comparison_id: str) -> Optional[str]:
+        """Return the diff image Cloudinary URL."""
+        doc = await self.comparisons_collection.find_one({"comparison_id": comparison_id}, {"diff_image_url": 1})
+        if doc and "diff_image_url" in doc:
+            return doc["diff_image_url"]
+        return None
 
-        The master report is the canonical representation of a completed scan.
-        It contains everything: scan metadata, full analysis, readiness,
-        version info. This is what GET /api/v1/scans/{scan_id} returns.
+    async def scan_exists(self, scan_id: str) -> bool:
+        """Check whether a scan exists."""
+        count = await self.scans_collection.count_documents({"scan_id": scan_id}, limit=1)
+        return count > 0
 
-        Args:
-            scan_id: The scan identifier.
-            report: The complete report as a serialisable dict.
-
-        Returns:
-            Path to the saved report file.
-        """
-        report_path = self._scan_dir(scan_id) / "report.json"
-        self._write_json(report_path, report)
-        logger.info(f"Saved master report: {report_path}")
-        return report_path
-
-    def save_scan_log(self, scan_id: str, log_entries: list[dict[str, str]]) -> Path:
-        """
-        Save the scan lifecycle log.
-
-        Written as a JSON array of {timestamp, message} objects.
-        This is a debug artifact for investigating failed scans.
-
-        Args:
-            scan_id: The scan identifier.
-            log_entries: List of log entry dicts from ScanLogCollector.
-
-        Returns:
-            Path to the saved log file.
-        """
-        log_path = self._logs_dir(scan_id) / "scan.log"
-        self._write_json(log_path, log_entries)
-        logger.info(f"Saved scan log: {log_path} ({len(log_entries)} entries)")
-        return log_path
-
-    def save_diff_image(self, comparison_id: str, diff_bytes: bytes) -> Path:
-        """Save a generated diff image to the comparison directory."""
-        diff_path = self._comparison_dir(comparison_id) / "diff.png"
-        diff_path.write_bytes(diff_bytes)
-        logger.info(f"Saved diff image: {diff_path}")
-        return diff_path
-
-    def save_comparison_report(self, comparison_id: str, report: dict[str, Any]) -> Path:
-        """Save the master report for a visual comparison."""
-        report_path = self._comparison_dir(comparison_id) / "report.json"
-        self._write_json(report_path, report)
-        logger.info(f"Saved comparison report: {report_path}")
-        return report_path
-
-    # ------------------------------------------------------------------
-    # Read operations
-    # ------------------------------------------------------------------
-
-    def get_scan_report(self, scan_id: str) -> dict[str, Any] | None:
-        """
-        Load and return the master report for a scan.
-
-        Returns None if the scan directory or report file doesn't exist.
-        This is intentional — the caller (API endpoint) converts None
-        to a 404 response.
-
-        Args:
-            scan_id: The scan identifier.
-
-        Returns:
-            The report as a dict, or None if not found.
-        """
-        report_path = self._scan_dir(scan_id) / "report.json"
-        if not report_path.exists():
-            return None
-
-        with open(report_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    def get_screenshot_path(self, scan_id: str) -> Path | None:
-        """
-        Return the absolute path to a scan's screenshot.
-
-        Returns None if the file doesn't exist. The API endpoint
-        uses this path with FileResponse to serve the image.
-
-        Args:
-            scan_id: The scan identifier.
-
-        Returns:
-            Absolute Path to the screenshot, or None if not found.
-        """
-        screenshot_path = self._media_dir(scan_id) / "screenshot.png"
-        if not screenshot_path.exists():
-            return None
-        return screenshot_path
-
-    def scan_exists(self, scan_id: str) -> bool:
-        """Check whether a scan directory exists."""
-        return self._scan_dir(scan_id).is_dir()
-
-    def list_scans(self) -> list[dict[str, Any]]:
-        """
-        List all available scans with summary information.
-
-        Reads each scan's report.json to extract summary fields.
-        Returns results sorted by creation time (most recent first).
-
-        Scans without a report.json (e.g., failed before report generation)
-        are included with minimal metadata derived from the directory name.
-
-        Returns:
-            List of scan summary dicts, each containing:
-            scan_id, url, status, created_at, duration_seconds.
-        """
-        scans: list[dict[str, Any]] = []
-
-        scans_dir = self._root / "scans"
-        if not scans_dir.exists():
-            return scans
-
-        for scan_dir in sorted(scans_dir.iterdir(), reverse=True):
-            if not scan_dir.is_dir():
-                continue
-
-            scan_id = scan_dir.name
-            report_path = scan_dir / "report.json"
-
-            if report_path.exists():
-                try:
-                    with open(report_path, "r", encoding="utf-8") as f:
-                        report = json.load(f)
-
-                    scan_info = report.get("scan_info", {})
-                    scans.append({
-                        "scan_id": scan_info.get("scan_id", scan_id),
-                        "url": scan_info.get("url", "unknown"),
-                        "status": scan_info.get("status", "unknown"),
-                        "created_at": scan_info.get("started_at"),
-                        "duration_seconds": scan_info.get("duration_seconds"),
-                    })
-                except (json.JSONDecodeError, OSError) as exc:
-                    logger.warning(f"Failed to read report for {scan_id}: {exc}")
-                    scans.append({
-                        "scan_id": scan_id,
-                        "url": "unknown",
-                        "status": "corrupted",
-                        "created_at": None,
-                        "duration_seconds": None,
-                    })
-            else:
-                # Scan directory exists but no report — likely a failed scan
-                scans.append({
-                    "scan_id": scan_id,
-                    "url": "unknown",
-                    "status": "incomplete",
-                    "created_at": None,
-                    "duration_seconds": None,
-                })
-
+    async def list_scans(self) -> list[dict[str, Any]]:
+        """List all available scans with summary information."""
+        cursor = self.scans_collection.find({}, {"report": 1, "scan_id": 1}).sort("_id", -1)
+        scans = []
+        async for doc in cursor:
+            scan_id = doc.get("scan_id")
+            report = doc.get("report", {})
+            scan_info = report.get("scan_info", {})
+            
+            scans.append({
+                "scan_id": scan_info.get("scan_id", scan_id),
+                "url": scan_info.get("url", "unknown"),
+                "status": scan_info.get("status", "unknown"),
+                "created_at": scan_info.get("started_at"),
+                "duration_seconds": scan_info.get("duration_seconds"),
+            })
         return scans

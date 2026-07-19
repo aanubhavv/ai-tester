@@ -8,17 +8,18 @@ interface ViewDocumentModalProps {
   documentId: string | null;
   documentTitle: string | null;
   documentFilename?: string | null;
+  fileUrl?: string | null;
   onClose: () => void;
 }
 
-export default function ViewDocumentModal({ projectId, documentId, documentTitle, documentFilename, onClose }: ViewDocumentModalProps) {
+export default function ViewDocumentModal({ projectId, documentId, documentTitle, documentFilename, fileUrl: providedFileUrl, onClose }: ViewDocumentModalProps) {
   const [content, setContent] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isPdf = documentFilename?.toLowerCase().endsWith('.pdf');
   const isImage = documentFilename?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/i);
-  const fileUrl = `http://127.0.0.1:8000/api/v1/projects/${projectId}/documents/${documentId}/file`;
+  const fileUrl = providedFileUrl || `http://127.0.0.1:8000/api/v1/projects/${projectId}/documents/${documentId}/file`;
 
   useEffect(() => {
     if (!documentId) return;

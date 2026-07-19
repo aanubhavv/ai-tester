@@ -15,6 +15,15 @@ class Settings(BaseSettings):
     aws_region_name: str | None = None
     enable_target_screenshot: bool = False
 
+    # --- Database Settings ---
+    mongodb_url: str = "mongodb://localhost:27017"
+    mongodb_db_name: str = "qaforge"
+
+    # --- ImageKit Settings ---
+    imagekit_public_key: str | None = None
+    imagekit_private_key: str | None = None
+    imagekit_url_endpoint: str | None = None
+
     # --- Readiness Engine Settings ---
     # These map directly to ReadinessConfig fields and can be overridden
     # via .env for environment-level tuning without code changes.

@@ -1,12 +1,11 @@
 import logging
 import asyncio
 from typing import Optional
-from datetime import datetime
-from pathlib import Path
+
 from playwright.sync_api import sync_playwright
 
 from app.services.ai.ai_service import ai_service
-from app.services.project_service import project_service, PROJECTS_ROOT
+from app.services.project_service import project_service
 from google.genai import types
 from app.services.ai.prompt_manager import prompt_manager
 from app.schemas.test_cases.models import TestCase
@@ -20,15 +19,7 @@ class ScriptGenerationService:
     """
     
     async def generate_script(self, project_id: str, tc: TestCase) -> Optional[str]:
-        """
-        Runs the full pipeline for a single test case:
-        1. Launches headless browser.
-        2. Visits project primary URL.
-        3. Extracts DOM and takes a full-page screenshot.
-        4. Calls AI (with vision) to generate Playwright script.
-        5. Saves script.
-        """
-        project = project_service.get_project(project_id)
+        project = await project_service.get_project(project_id)
         if not project or not project.primary_url:
             logger.error(f"Cannot generate script for {tc.tc_id}: Project missing primary_url")
             return None
@@ -38,7 +29,6 @@ class ScriptGenerationService:
         screenshot_bytes = None
         
         try:
-            # 1. Collect Context via Playwright (Sync in thread to avoid Windows ProactorEventLoop issues)
             def _extract_and_generate():
                 with sync_playwright() as p:
                     browser = p.chromium.launch(headless=False)
@@ -51,7 +41,6 @@ class ScriptGenerationService:
                             dom_context = dom_context[:50000] + "\n...[TRUNCATED]"
                         screenshot_bytes = page.screenshot(full_page=True)
                         
-                        # Prepare prompt manually
                         prompt_str = prompt_manager.get_prompt(
                             task_name="script_generation/playwright",
                             tc_id=tc.tc_id,
@@ -65,7 +54,6 @@ class ScriptGenerationService:
                         
                         image_part = types.Part.from_bytes(data=screenshot_bytes, mime_type="image/png")
                         
-                        # Call AI with multimodal prompt
                         raw_script = ai_service.generate_text_raw(
                             task="script_generation",
                             prompt=[prompt_str, image_part],
@@ -82,11 +70,7 @@ class ScriptGenerationService:
             if not raw_script:
                 return None
             
-            # 2. Clean and Save Script
-            # Remove markdown backticks if AI accidentally included them
             clean_script = raw_script.replace("```typescript", "").replace("```ts", "").replace("```", "").strip()
-            
-            self._save_script(project_id, tc.id, clean_script)
             
             return clean_script
             
@@ -95,10 +79,7 @@ class ScriptGenerationService:
             return None
 
     async def improve_script(self, project_id: str, tc: TestCase, user_context: str, old_script: str) -> Optional[str]:
-        """
-        Runs the pipeline to improve a single test case script based on user context.
-        """
-        project = project_service.get_project(project_id)
+        project = await project_service.get_project(project_id)
         if not project or not project.primary_url:
             logger.error(f"Cannot improve script for {tc.tc_id}: Project missing primary_url")
             return None
@@ -147,20 +128,10 @@ class ScriptGenerationService:
             
             clean_script = raw_script.replace("```typescript", "").replace("```ts", "").replace("```", "").strip()
             
-            self._save_script(project_id, tc.id, clean_script)
-            
             return clean_script
             
         except Exception as e:
             logger.error(f"Error improving script for {tc.tc_id}: {e}", exc_info=True)
             return None
-
-    def _save_script(self, project_id: str, tc_id: str, content: str):
-        scripts_dir = PROJECTS_ROOT / project_id / "scripts" / "generated"
-        scripts_dir.mkdir(parents=True, exist_ok=True)
-        file_path = scripts_dir / f"{tc_id}.spec.ts"
-        
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
 
 script_generator = ScriptGenerationService()
