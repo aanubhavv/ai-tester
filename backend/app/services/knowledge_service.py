@@ -1,26 +1,23 @@
-import json
-import shutil
-from pathlib import Path
+import io
 from typing import List, Optional
 
 from fastapi import UploadFile
-from app.models.knowledge_models import DocumentModel, DocumentType
-from app.services.project_service import PROJECTS_ROOT, project_service
+import pypdf
+
+from app.models.knowledge_models import DocumentModel, DocumentType, generate_document_id
+from app.services.project_service import project_service
+from app.db.mongodb import get_database
 
 class KnowledgeService:
     """
-    Service for managing Project Knowledge Documents.
-    Documents metadata are stored in `projects/<project_id>/knowledge/` as JSON.
-    The actual files are stored in `projects/<project_id>/uploads/`.
+    Service for managing Project Knowledge Documents using MongoDB and Cloudinary.
     """
 
-    def _get_knowledge_dir(self, project_id: str) -> Path:
-        return PROJECTS_ROOT / project_id / "knowledge"
+    @property
+    def _collection(self):
+        return get_database()["knowledge_documents"]
 
-    def _get_uploads_dir(self, project_id: str) -> Path:
-        return PROJECTS_ROOT / project_id / "knowledge" / "uploads"
-
-    def upload_document(
+    async def upload_document(
         self, 
         project_id: str, 
         file: UploadFile, 
@@ -28,29 +25,38 @@ class KnowledgeService:
         description: str = "",
         document_type: DocumentType = DocumentType.OTHER
     ) -> Optional[DocumentModel]:
-        """Save an uploaded file and generate its metadata document."""
-        project = project_service.get_project(project_id)
+        """Upload a file to Cloudinary and store metadata/text in MongoDB."""
+        project = await project_service.get_project(project_id)
         if not project:
             return None
 
-        # Prepare directories
-        uploads_dir = self._get_uploads_dir(project_id)
-        uploads_dir.mkdir(parents=True, exist_ok=True)
-        knowledge_dir = self._get_knowledge_dir(project_id)
-        knowledge_dir.mkdir(parents=True, exist_ok=True)
-
-        # Generate unique ID for the document metadata
-        from app.models.knowledge_models import generate_document_id
         doc_id = generate_document_id()
-
-        # Save the physical file
         filename = file.filename or f"upload_{doc_id}"
-        file_path = uploads_dir / f"{doc_id}_{filename}"
         
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        file_bytes = await file.read()
+        
+        # Extract text if PDF
+        extracted_text = ""
+        if filename.lower().endswith(".pdf"):
+            try:
+                reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                for page in reader.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        extracted_text += page_text + "\n"
+            except Exception as e:
+                print(f"Error extracting PDF: {e}")
+        else:
+            # Try to decode as text if not PDF
+            try:
+                extracted_text = file_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                pass
 
-        # Create metadata model
+        # Store file in MongoDB directly to avoid Cloudinary PDF strict delivery blocking
+        file_url = None
+        file_data = file_bytes
+
         doc = DocumentModel(
             document_id=doc_id,
             project_id=project_id,
@@ -58,107 +64,47 @@ class KnowledgeService:
             description=description,
             document_type=document_type,
             filename=filename,
-            file_path=str(file_path)
+            file_url=file_url,
+            file_data=file_data,
+            content=extracted_text
         )
 
-        # Extract text if it's a PDF
-        if file_path.suffix.lower() == ".pdf":
-            try:
-                import pypdf
-                with open(file_path, "rb") as f:
-                    reader = pypdf.PdfReader(f)
-                    text = ""
-                    for page in reader.pages:
-                        page_text = page.extract_text()
-                        if page_text:
-                            text += page_text + "\n"
-                
-                extracted_dir = knowledge_dir / "extracted"
-                extracted_dir.mkdir(exist_ok=True)
-                extracted_file_path = extracted_dir / f"{Path(filename).stem}.md"
-                with open(extracted_file_path, "w", encoding="utf-8") as f:
-                    f.write(text)
-            except Exception as e:
-                print(f"Error extracting PDF during upload: {e}")
-
-        # Save metadata JSON
-        doc_json_path = knowledge_dir / f"{doc_id}.json"
-        with open(doc_json_path, "w") as f:
-            f.write(doc.model_dump_json(indent=2))
-
+        await self._collection.insert_one(doc.model_dump())
         return doc
 
-    def list_documents(self, project_id: str) -> List[DocumentModel]:
+    async def list_documents(self, project_id: str) -> List[DocumentModel]:
         """List all knowledge documents for a project."""
-        docs = []
-        knowledge_dir = self._get_knowledge_dir(project_id)
-        if not knowledge_dir.exists():
-            return docs
+        cursor = self._collection.find(
+            {"project_id": project_id},
+            projection={"file_data": 0}
+        ).sort("uploaded_at", -1)
+        docs = await cursor.to_list(length=None)
+        return [DocumentModel(**doc) for doc in docs]
 
-        for entry in knowledge_dir.iterdir():
-            if entry.is_file() and entry.suffix == ".json":
-                try:
-                    with open(entry, "r") as f:
-                        data = json.load(f)
-                        docs.append(DocumentModel(**data))
-                except Exception as e:
-                    print(f"Error loading document from {entry}: {e}")
-
-        docs.sort(key=lambda d: d.uploaded_at, reverse=True)
-        return docs
-
-    def get_document(self, project_id: str, document_id: str) -> Optional[DocumentModel]:
+    async def get_document(self, project_id: str, document_id: str) -> Optional[DocumentModel]:
         """Get metadata for a specific document."""
-        doc_path = self._get_knowledge_dir(project_id) / f"{document_id}.json"
-        if not doc_path.exists():
-            return None
-            
-        with open(doc_path, "r") as f:
-            data = json.load(f)
-            return DocumentModel(**data)
+        doc = await self._collection.find_one({"project_id": project_id, "document_id": document_id})
+        if doc:
+            return DocumentModel(**doc)
+        return None
 
-    def get_document_content(self, project_id: str, document_id: str) -> Optional[str]:
+    async def get_document_content(self, project_id: str, document_id: str) -> Optional[str]:
         """Get the raw text content of a document."""
-        doc = self.get_document(project_id, document_id)
+        doc = await self.get_document(project_id, document_id)
         if not doc:
             return None
-        
-        file_path = Path(doc.file_path)
-        if not file_path.exists():
-            return None
-            
-        if file_path.suffix.lower() == ".pdf":
-            extracted_file = self._get_knowledge_dir(project_id) / "extracted" / f"{Path(doc.filename).stem}.md"
-            if extracted_file.exists():
-                with open(extracted_file, "r", encoding="utf-8") as f:
-                    return f.read()
-            return "[PDF content unreadable or not extracted]"
-            
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                return f.read()
-        except UnicodeDecodeError:
-            return "[Binary or non-UTF8 file content unreadable]"
-        except Exception as e:
-            print(f"Error reading document content: {e}")
-            return None
+        return doc.content
 
-    def delete_document(self, project_id: str, document_id: str) -> bool:
-        """Delete a document and its uploaded file."""
-        doc = self.get_document(project_id, document_id)
+    async def delete_document(self, project_id: str, document_id: str) -> bool:
+        """Delete a document from MongoDB and Cloudinary."""
+        doc = await self.get_document(project_id, document_id)
         if not doc:
             return False
 
-        # Delete JSON metadata
-        doc_path = self._get_knowledge_dir(project_id) / f"{document_id}.json"
-        if doc_path.exists():
-            doc_path.unlink()
+        # No longer deleting from Cloudinary since we store directly in MongoDB
 
-        # Delete physical file
-        file_path = Path(doc.file_path)
-        if file_path.exists():
-            file_path.unlink()
-
-        return True
+        # Delete from MongoDB
+        result = await self._collection.delete_one({"project_id": project_id, "document_id": document_id})
+        return result.deleted_count > 0
 
 knowledge_service = KnowledgeService()

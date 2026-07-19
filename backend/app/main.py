@@ -9,6 +9,8 @@ from app.core.exceptions import global_exception_handler
 from app.api.v1.router import api_router
 from app.api.v1.endpoints.root import router as root_router
 from app.services.execution.queue import execution_queue
+from app.db.mongodb import connect_to_mongo, close_mongo_connection
+from app.db.imagekit_config import setup_imagekit
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +18,16 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     setup_logging()
     logger.info(f"Starting {settings.app_name} in {settings.app_env} environment...")
+    
+    # Initialize DB and ImageKit
+    setup_imagekit()
+    await connect_to_mongo()
+    
     await execution_queue.start()
     yield
     logger.info(f"Shutting down {settings.app_name}...")
     await execution_queue.stop()
+    await close_mongo_connection()
 
 app = FastAPI(
     title=settings.app_name,

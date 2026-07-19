@@ -249,7 +249,7 @@ export default function ClientScans({ projectId }: { projectId: string }) {
                     <div className={`${isScreenshotExpanded ? 'w-full h-full overflow-auto pt-16' : 'absolute inset-0'}`}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img 
-                        src={`http://127.0.0.1:8000${scanResult.screenshot_url}`} 
+                        src={scanResult.screenshot_url.startsWith('http') ? scanResult.screenshot_url : `http://127.0.0.1:8000${scanResult.screenshot_url}`} 
                         alt="Scan Screenshot" 
                         style={isScreenshotExpanded ? { width: `${zoom * 100}%`, transition: 'width 0.2s' } : {}}
                         className={`transition-all ${isScreenshotExpanded ? 'max-w-none mx-auto block' : 'w-full h-full object-cover object-top block'}`}

@@ -9,6 +9,7 @@ class DocumentResponse(BaseModel):
     description: str
     document_type: DocumentType
     filename: str
+    file_url: str | None = None
     uploaded_at: datetime
 
 class DocumentListResponse(BaseModel):

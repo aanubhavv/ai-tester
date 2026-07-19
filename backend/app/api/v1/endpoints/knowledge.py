@@ -1,5 +1,6 @@
 from typing import Any, Optional
-from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form, Response
+from fastapi.responses import RedirectResponse
 
 from app.schemas.knowledge import DocumentResponse, DocumentListResponse
 from app.models.knowledge_models import DocumentType
@@ -8,7 +9,7 @@ from app.services.knowledge_service import knowledge_service
 router = APIRouter()
 
 @router.post("/{project_id}/documents", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
-def upload_document(
+async def upload_document(
     project_id: str,
     file: UploadFile = File(...),
     title: str = Form(...),
@@ -18,7 +19,7 @@ def upload_document(
     """
     Upload a new knowledge document for a project.
     """
-    doc = knowledge_service.upload_document(
+    doc = await knowledge_service.upload_document(
         project_id=project_id,
         file=file,
         title=title,
@@ -33,19 +34,19 @@ def upload_document(
     return doc
 
 @router.get("/{project_id}/documents", response_model=DocumentListResponse)
-def list_documents(project_id: str) -> Any:
+async def list_documents(project_id: str) -> Any:
     """
     List all knowledge documents for a project.
     """
-    docs = knowledge_service.list_documents(project_id)
+    docs = await knowledge_service.list_documents(project_id)
     return {"documents": docs, "total": len(docs)}
 
 @router.get("/{project_id}/documents/{document_id}", response_model=DocumentResponse)
-def get_document(project_id: str, document_id: str) -> Any:
+async def get_document(project_id: str, document_id: str) -> Any:
     """
     Get a document by ID.
     """
-    doc = knowledge_service.get_document(project_id, document_id)
+    doc = await knowledge_service.get_document(project_id, document_id)
     if not doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -54,11 +55,11 @@ def get_document(project_id: str, document_id: str) -> Any:
     return doc
 
 @router.get("/{project_id}/documents/{document_id}/content")
-def get_document_content(project_id: str, document_id: str) -> Any:
+async def get_document_content(project_id: str, document_id: str) -> Any:
     """
     Get the raw text content of a document.
     """
-    content = knowledge_service.get_document_content(project_id, document_id)
+    content = await knowledge_service.get_document_content(project_id, document_id)
     if content is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -66,42 +67,36 @@ def get_document_content(project_id: str, document_id: str) -> Any:
         )
     return {"content": content}
 
-from fastapi.responses import FileResponse
-import mimetypes
-from pathlib import Path
-
 @router.get("/{project_id}/documents/{document_id}/file")
-def get_document_file(project_id: str, document_id: str) -> Any:
+async def get_document_file(project_id: str, document_id: str) -> Any:
     """
-    Get the physical file of a document for preview.
+    Get the raw document file for viewing inline.
     """
-    doc = knowledge_service.get_document(project_id, document_id)
+    doc = await knowledge_service.get_document(project_id, document_id)
     if not doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document {document_id} not found"
-        )
-    
-    abs_path = Path(doc.file_path).resolve()
-    
-    if not abs_path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="File not found on server"
+            detail=f"Document not found for {document_id}"
         )
         
-    mime_type, _ = mimetypes.guess_type(doc.filename)
-    if not mime_type:
-        mime_type = "application/octet-stream"
+    if doc.file_data:
+        media_type = "application/pdf" if doc.filename.lower().endswith(".pdf") else "application/octet-stream"
+        return Response(content=doc.file_data, media_type=media_type)
         
-    return FileResponse(path=abs_path, filename=doc.filename, media_type=mime_type, content_disposition_type="inline")
+    if doc.file_url:
+        return RedirectResponse(url=doc.file_url)
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Document file not found for {document_id}"
+    )
 
 @router.delete("/{project_id}/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_document(project_id: str, document_id: str) -> None:
+async def delete_document(project_id: str, document_id: str) -> None:
     """
     Delete a document.
     """
-    success = knowledge_service.delete_document(project_id, document_id)
+    success = await knowledge_service.delete_document(project_id, document_id)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

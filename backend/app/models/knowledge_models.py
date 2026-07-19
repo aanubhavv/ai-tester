@@ -32,5 +32,7 @@ class DocumentModel(BaseModel):
     description: str = ""
     document_type: DocumentType = DocumentType.OTHER
     filename: str
-    file_path: str
+    file_url: str | None = None
+    file_data: bytes | None = None
+    content: str | None = None
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)

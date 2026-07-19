@@ -15,6 +15,7 @@ export default function ClientKnowledgeTable({ files, projectId }: ClientKnowled
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [selectedDocTitle, setSelectedDocTitle] = useState<string | null>(null);
   const [selectedDocFilename, setSelectedDocFilename] = useState<string | null>(null);
+  const [selectedFileUrl, setSelectedFileUrl] = useState<string | null>(null);
 
   const getIcon = (type: string) => {
     if (type.includes('image')) return <FileImage className="h-5 w-5 text-blue-400" />;
@@ -23,16 +24,18 @@ export default function ClientKnowledgeTable({ files, projectId }: ClientKnowled
     return <File className="h-5 w-5 text-zinc-400" />;
   };
 
-  const handleRowClick = (docId: string, title: string, filename: string) => {
+  const handleRowClick = (docId: string, title: string, filename: string, fileUrl?: string) => {
     setSelectedDocId(docId);
     setSelectedDocTitle(title);
     setSelectedDocFilename(filename);
+    setSelectedFileUrl(fileUrl || null);
   };
 
   const handleCloseModal = () => {
     setSelectedDocId(null);
     setSelectedDocTitle(null);
     setSelectedDocFilename(null);
+    setSelectedFileUrl(null);
   };
 
   const handleDelete = async (e: React.MouseEvent, docId: string) => {
@@ -84,7 +87,7 @@ export default function ClientKnowledgeTable({ files, projectId }: ClientKnowled
             <tr 
               key={file.document_id || file.id} 
               className="hover:bg-zinc-900/50 transition-colors cursor-pointer"
-              onClick={() => handleRowClick(file.document_id || file.id, file.title || file.filename, file.filename)}
+              onClick={() => handleRowClick(file.document_id || file.id, file.title || file.filename, file.filename, file.file_url)}
             >
               <td className="px-6 py-4">
                 <div className="flex items-center gap-3">
@@ -96,7 +99,7 @@ export default function ClientKnowledgeTable({ files, projectId }: ClientKnowled
               <td className="px-6 py-4 text-zinc-400">
                 {file.size_bytes ? `${(file.size_bytes / 1024).toFixed(1)} KB` : 'Unknown'}
               </td>
-              <td className="px-6 py-4 text-zinc-400">
+              <td className="px-6 py-4 text-zinc-400" suppressHydrationWarning>
                 {file.created_at || file.uploaded_at ? new Date(file.created_at || file.uploaded_at).toLocaleDateString() : 'N/A'}
               </td>
               <td className="px-6 py-4">
@@ -124,6 +127,7 @@ export default function ClientKnowledgeTable({ files, projectId }: ClientKnowled
           documentId={selectedDocId} 
           documentTitle={selectedDocTitle} 
           documentFilename={selectedDocFilename}
+          fileUrl={selectedFileUrl}
           onClose={handleCloseModal} 
         />
       )}

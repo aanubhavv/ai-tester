@@ -1,79 +1,72 @@
 import logging
 import time
 import json
-from pathlib import Path
 from typing import Any
 import uuid
 from datetime import datetime
+import httpx
 
 import cv2
 import numpy as np
 
-from app.schemas.comparison import ComparisonRequest, ChangedRegion, DiffStatistics
+from app.schemas.comparison import ComparisonRequest, ChangedRegion
 from app.services.artifact_service import ArtifactService
 
 logger = logging.getLogger(__name__)
 
 class ComparisonError(Exception):
-    """Custom exception for errors during the visual comparison process."""
     pass
 
 class ComparisonService:
-    """
-    Visual Regression Engine.
-
-    Responsible for comparing two scan artifacts (baseline and current),
-    detecting visual differences, masking ignored regions, generating
-    a composite diff image, and compiling structured statistics.
-    """
-
     def __init__(self, artifact_service: ArtifactService):
         self._artifact_service = artifact_service
 
-    def compare_scans(self, request: ComparisonRequest) -> dict[str, Any]:
-        """
-        Execute the full visual regression comparison.
-        
-        Args:
-            request: The ComparisonRequest containing scan IDs and options.
+    async def _fetch_image(self, url: str) -> np.ndarray:
+        if "ik.imagekit.io" in url:
+            url = f"{url}&tr=orig-true" if "?" in url else f"{url}?tr=orig-true"
             
-        Returns:
-            A dictionary matching RegressionReportSchema.
-        """
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            image_bytes = response.content
+            nparr = np.frombuffer(image_bytes, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            return img
+
+    async def compare_scans(self, request: ComparisonRequest) -> dict[str, Any]:
         start_time = time.time()
         
         baseline_id = request.baseline_scan_id
         current_id = request.current_scan_id
-        threshold = request.threshold if request.threshold is not None else 0.05
+        threshold = request.threshold if request.threshold is not None else 0.1
         ignored_selectors = request.ignored_selectors or []
 
         logger.info(f"Comparing {baseline_id} to {current_id}")
 
-        # 1. Load screenshots using execution-scoped artifact services
         baseline_service = ArtifactService.get_for_scan(baseline_id)
         current_service = ArtifactService.get_for_scan(current_id)
 
-        baseline_path = baseline_service.get_screenshot_path(baseline_id)
-        current_path = current_service.get_screenshot_path(current_id)
+        baseline_url = await baseline_service.get_screenshot_path(baseline_id)
+        current_url = await current_service.get_screenshot_path(current_id)
 
-        if not baseline_path:
+        if not baseline_url:
             raise ComparisonError(f"Baseline screenshot not found for scan {baseline_id}")
-        if not current_path:
+        if not current_url:
             raise ComparisonError(f"Current screenshot not found for scan {current_id}")
 
-        # Load images via OpenCV (BGR format)
-        img_baseline = cv2.imread(str(baseline_path))
-        img_current = cv2.imread(str(current_path))
+        try:
+            img_baseline = await self._fetch_image(baseline_url)
+            img_current = await self._fetch_image(current_url)
+        except Exception as e:
+            raise ComparisonError(f"Failed to fetch and decode screenshots: {e}")
 
         if img_baseline is None or img_current is None:
             raise ComparisonError("Failed to decode screenshot images via OpenCV.")
 
-        # 2. Mask ignored regions
         if ignored_selectors:
-            self._mask_ignored_regions(baseline_id, img_baseline, ignored_selectors, baseline_service)
-            self._mask_ignored_regions(current_id, img_current, ignored_selectors, current_service)
+            await self._mask_ignored_regions(baseline_id, img_baseline, ignored_selectors, baseline_service)
+            await self._mask_ignored_regions(current_id, img_current, ignored_selectors, current_service)
 
-        # 3. Align dimensions (Pad the smaller image to match the larger one)
         h_b, w_b = img_baseline.shape[:2]
         h_c, w_c = img_current.shape[:2]
         
@@ -83,23 +76,21 @@ class ComparisonService:
         img_baseline_aligned = self._pad_image(img_baseline, max_w, max_h)
         img_current_aligned = self._pad_image(img_current, max_w, max_h)
 
-        # 4. Compute visual difference
         gray_baseline = cv2.cvtColor(img_baseline_aligned, cv2.COLOR_BGR2GRAY)
         gray_current = cv2.cvtColor(img_current_aligned, cv2.COLOR_BGR2GRAY)
         
-        # Absolute pixel-by-pixel difference
+        # Apply GaussianBlur to reduce high-frequency noise (e.g. anti-aliasing artifacts)
+        gray_baseline = cv2.GaussianBlur(gray_baseline, (5, 5), 0)
+        gray_current = cv2.GaussianBlur(gray_current, (5, 5), 0)
+        
         diff = cv2.absdiff(gray_baseline, gray_current)
         
-        # Apply threshold to ignore tiny rendering differences
-        # threshold is 0.0 to 1.0. We map it to 0-255 pixel intensity difference.
         pixel_threshold = int(threshold * 255)
         _, thresh = cv2.threshold(diff, pixel_threshold, 255, cv2.THRESH_BINARY)
         
-        # Dilate the thresholded image slightly to connect fragmented diff pixels
         kernel = np.ones((5, 5), np.uint8)
         thresh = cv2.dilate(thresh, kernel, iterations=2)
 
-        # 5. Find changed regions (bounding boxes)
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         changed_regions: list[ChangedRegion] = []
@@ -108,36 +99,26 @@ class ComparisonService:
         for contour in contours:
             x, y, w, h = cv2.boundingRect(contour)
             area = w * h
-            
-            # Ignore micro-regions (e.g. less than 16 pixels area)
-            if area < 16:
+            if area < 100:  # Increased from 16 to ignore small artifacts
                 continue
-                
             changed_regions.append(ChangedRegion(x=x, y=y, width=w, height=h, area=area))
-            
-            # Draw red bounding box on diff image (BGR format: 0, 0, 255 is red)
             cv2.rectangle(diff_image, (x, y), (x + w, y + h), (0, 0, 255), 2)
             
-        # 6. Calculate statistics
         changed_pixels_count = cv2.countNonZero(thresh)
         total_pixels = max_w * max_h
         difference_percentage = (changed_pixels_count / total_pixels) if total_pixels > 0 else 0.0
 
-        # We consider it 'passed' if there are no meaningful changed regions.
         passed = len(changed_regions) == 0
 
-        # Encode diff image to PNG bytes
         success, encoded_img = cv2.imencode('.png', diff_image)
         if not success:
             raise ComparisonError("Failed to encode diff image to PNG format.")
         diff_bytes = encoded_img.tobytes()
 
-        # Generate unique comparison ID
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         short_hex = uuid.uuid4().hex[:4]
         comparison_id = f"comp_{timestamp}_{short_hex}"
 
-        # Compile report
         duration = round(time.time() - start_time, 3)
         report = {
             "info": {
@@ -160,47 +141,29 @@ class ComparisonService:
             "warnings": [],
         }
 
-        # Save artifacts
-        self._artifact_service.create_comparison_directory(comparison_id)
-        self._artifact_service.save_diff_image(comparison_id, diff_bytes)
-        self._artifact_service.save_comparison_report(comparison_id, report)
+        await self._artifact_service.create_comparison_directory(comparison_id)
+        await self._artifact_service.save_diff_image(comparison_id, diff_bytes)
+        await self._artifact_service.save_comparison_report(comparison_id, report)
         
         logger.info(f"Comparison completed in {duration}s. Passed: {passed}")
 
         return report
 
     def _pad_image(self, img: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
-        """Pad an image with black pixels to match the target dimensions."""
         h, w = img.shape[:2]
         if h == target_h and w == target_w:
             return img
-            
-        # Create a new black image (BGR) of target size
-        padded = np.zeros((target_h, target_w, 3), dtype=np.uint8)
-        # Copy the original image into the top-left corner
+        padded = np.full((target_h, target_w, 3), 255, dtype=np.uint8)
         padded[0:h, 0:w] = img
         return padded
 
-    def _mask_ignored_regions(self, scan_id: str, img: np.ndarray, selectors: list[str], service: ArtifactService) -> None:
-        """
-        Load layout.json for the scan and draw black rectangles over any
-        elements matching the ignored selectors.
-        """
-        # Read layout.json
-        scan_dir = service._scan_dir(scan_id)
-        layout_path = scan_dir / "analysis" / "layout.json"
-        
-        if not layout_path.exists():
+    async def _mask_ignored_regions(self, scan_id: str, img: np.ndarray, selectors: list[str], service: ArtifactService) -> None:
+        report = await service.get_scan_report(scan_id)
+        if not report or "analysis" not in report or "layout" not in report["analysis"]:
             logger.warning(f"layout.json not found for scan {scan_id}. Cannot mask dynamic regions.")
             return
             
-        try:
-            with open(layout_path, "r", encoding="utf-8") as f:
-                layout_data = json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to load layout.json for scan {scan_id}: {e}")
-            return
-            
+        layout_data = report["analysis"]["layout"]
         elements = layout_data.get("elements", [])
         
         for selector in selectors:
@@ -208,17 +171,11 @@ class ComparisonService:
             for el in matched_elements:
                 x, y = el.get("x", 0), el.get("y", 0)
                 w, h = el.get("width", 0), el.get("height", 0)
-                # Draw a solid black rectangle over the element
                 cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 0), -1)
                 
     def _find_matching_elements(self, elements: list[dict], selector: str) -> list[dict]:
-        """
-        Basic CSS selector resolution against the LayoutSchema elements.
-        Supports .class, #id, and tag name.
-        """
         selector = selector.strip()
         matched = []
-        
         for el in elements:
             if selector.startswith("."):
                 class_name = selector[1:]
@@ -229,8 +186,6 @@ class ComparisonService:
                 if id_name == el.get("id"):
                     matched.append(el)
             else:
-                # Assume tag name
                 if selector.lower() == el.get("tag", ""):
                     matched.append(el)
-                    
         return matched
