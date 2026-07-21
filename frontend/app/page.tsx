@@ -4,7 +4,7 @@ import QuickScanButton from "./QuickScanButton";
 
 async function getProjects() {
   try {
-    const res = await fetch('http://127.0.0.1:8000/api/v1/projects/', { cache: 'no-store' });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/`, { cache: 'no-store' });
     if (!res.ok) return { projects: [], total: 0 };
     return res.json();
   } catch (error) {
@@ -15,7 +15,7 @@ async function getProjects() {
 
 async function getScans() {
   try {
-    const res = await fetch('http://127.0.0.1:8000/api/v1/scans/', { cache: 'no-store' });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/scans/`, { cache: 'no-store' });
     if (!res.ok) return { scans: [], total: 0 };
     const data = await res.json();
     return { scans: Array.isArray(data) ? data : [], total: Array.isArray(data) ? data.length : 0 };

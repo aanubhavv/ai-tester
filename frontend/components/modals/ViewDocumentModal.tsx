@@ -19,7 +19,7 @@ export default function ViewDocumentModal({ projectId, documentId, documentTitle
 
   const isPdf = documentFilename?.toLowerCase().endsWith('.pdf');
   const isImage = documentFilename?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/i);
-  const fileUrl = providedFileUrl || `http://127.0.0.1:8000/api/v1/projects/${projectId}/documents/${documentId}/file`;
+  const fileUrl = providedFileUrl || `${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/documents/${documentId}/file`;
 
   useEffect(() => {
     if (!documentId) return;
@@ -29,7 +29,7 @@ export default function ViewDocumentModal({ projectId, documentId, documentTitle
       setIsLoading(true);
       setError(null);
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/documents/${documentId}/content`);
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/documents/${documentId}/content`);
         if (!res.ok) {
           throw new Error("Failed to load document content");
         }

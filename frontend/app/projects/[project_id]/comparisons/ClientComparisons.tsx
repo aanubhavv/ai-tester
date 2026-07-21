@@ -19,7 +19,7 @@ export default function ClientComparisons({ projectId }: { projectId: string }) 
 
   const fetchScans = async () => {
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/executions`);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/executions`);
       if (res.ok) {
         const data = await res.json();
         // filter for completed scans
@@ -49,7 +49,7 @@ export default function ClientComparisons({ projectId }: { projectId: string }) 
     setResult(null);
 
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/v1/compare`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/compare`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -195,7 +195,7 @@ export default function ClientComparisons({ projectId }: { projectId: string }) 
               </div>
               <div className="relative w-full flex justify-center bg-zinc-950 p-4">
                 <img 
-                  src={`http://127.0.0.1:8000${result.diff_image_url}`} 
+                  src={`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}${result.diff_image_url}`} 
                   alt="Diff" 
                   className="max-w-full rounded shadow-md border border-zinc-800"
                 />

@@ -3,7 +3,7 @@ import AddFlowModal from "@/components/modals/AddFlowModal";
 
 async function getFlows(projectId: string) {
   try {
-    const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/flows`, { cache: 'no-store' });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/flows`, { cache: 'no-store' });
     if (!res.ok) return { flows: [] };
     return res.json();
   } catch (error) {

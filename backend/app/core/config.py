@@ -1,3 +1,4 @@
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -16,8 +17,11 @@ class Settings(BaseSettings):
     enable_target_screenshot: bool = False
 
     # --- Database Settings ---
-    mongodb_url: str = "mongodb://localhost:27017"
-    mongodb_db_name: str = "qaforge"
+    mongodb_url: str = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+    mongodb_db_name: str = os.getenv("MONGODB_DB_NAME", "qaforge")
+
+    # --- CORS Settings ---
+    cors_origins: str = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 
     # --- ImageKit Settings ---
     imagekit_public_key: str | None = None

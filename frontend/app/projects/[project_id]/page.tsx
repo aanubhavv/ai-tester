@@ -2,7 +2,7 @@ import { Activity, ShieldAlert, Layers, CheckSquare, PlaySquare, GitCompare, Ext
 
 async function getProject(projectId: string) {
   try {
-    const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}`, { cache: 'no-store' });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}`, { cache: 'no-store' });
     if (!res.ok) return null;
     return res.json();
   } catch (error) {
@@ -12,7 +12,7 @@ async function getProject(projectId: string) {
 
 async function getExecutions(projectId: string) {
   try {
-    const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/executions`, { cache: 'no-store' });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/executions`, { cache: 'no-store' });
     if (!res.ok) return { executions: [], total: 0 };
     return res.json();
   } catch (error) {
@@ -22,7 +22,7 @@ async function getExecutions(projectId: string) {
 
 async function getTestCases(projectId: string) {
   try {
-    const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases`, { cache: 'no-store' });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/test-cases`, { cache: 'no-store' });
     if (!res.ok) return [];
     return res.json();
   } catch (error) {

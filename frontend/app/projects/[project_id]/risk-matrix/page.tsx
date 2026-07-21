@@ -2,7 +2,7 @@ import { AlertTriangle, BrainCircuit } from "lucide-react";
 
 async function getRisks(projectId: string) {
   try {
-    const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/planning/risks`, { cache: 'no-store' });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/planning/risks`, { cache: 'no-store' });
     if (!res.ok) return null;
     return res.json();
   } catch (error) {

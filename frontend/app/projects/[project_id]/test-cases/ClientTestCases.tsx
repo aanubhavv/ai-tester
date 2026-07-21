@@ -63,7 +63,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
   const handleSaveScript = async () => {
     if (!scriptViewerCase) return;
     try {
-      const response = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/${scriptViewerCase.id}/script`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/test-cases/${scriptViewerCase.id}/script`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ script: editedScript }),
@@ -83,7 +83,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
     if (!scriptViewerCase || !improveContext.trim()) return;
     setIsImprovingScript(true);
     try {
-      const response = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/${scriptViewerCase.id}/scripts/improve`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/test-cases/${scriptViewerCase.id}/scripts/improve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -133,7 +133,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
     }
 
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/generate`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/test-cases/generate`, {
         method: "POST"
       });
       if (res.ok) {
@@ -149,7 +149,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
   };
 
   const handleExport = () => {
-    window.open(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/export/xlsx`, '_blank');
+    window.open(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/test-cases/export/xlsx`, '_blank');
   };
 
   const startEditing = () => {
@@ -166,7 +166,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
     if (!editedCase) return;
     setIsSaving(true);
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/${editedCase.id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/test-cases/${editedCase.id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json"
@@ -202,7 +202,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
     // Optimistic UI update could go here, but for simplicity we rely on router.refresh()
     try {
       const updatedData = { ...tcToUpdate, status: newStatus };
-      const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/${tcId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/test-cases/${tcId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json"
@@ -257,7 +257,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
               <button 
                 onClick={async () => {
                   try {
-                    await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/scripts/generate`, {
+                    await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/test-cases/scripts/generate`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ test_case_ids: selectedTestIds })
@@ -274,7 +274,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
               <button 
                 onClick={async () => {
                   try {
-                    await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/scripts/execute`, {
+                    await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/test-cases/scripts/execute`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ test_case_ids: selectedTestIds })
@@ -392,7 +392,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                               });
                               if (confirmed) {
                                 try {
-                                  await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/scripts/stop`, {
+                                  await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/test-cases/scripts/stop`, {
                                     method: "POST",
                                     headers: { "Content-Type": "application/json" },
                                     body: JSON.stringify({ test_case_ids: [tc.id] })
@@ -431,7 +431,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                               });
                               if (confirmed) {
                                 try {
-                                  await fetch(`http://127.0.0.1:8000/api/v1/projects/${projectId}/test-cases/scripts/stop`, {
+                                  await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/test-cases/scripts/stop`, {
                                     method: "POST",
                                     headers: { "Content-Type": "application/json" },
                                     body: JSON.stringify({ test_case_ids: [tc.id] })
@@ -696,7 +696,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
                         <div className={`${isScreenshotExpanded ? 'w-full h-full overflow-auto pt-16' : 'absolute inset-0'}`}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img 
-                            src={`http://127.0.0.1:8000${selectedCase.screenshot}?t=${selectedCase.updated_at ? new Date(selectedCase.updated_at).getTime() : Date.now()}`} 
+                            src={`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}${selectedCase.screenshot}?t=${selectedCase.updated_at ? new Date(selectedCase.updated_at).getTime() : Date.now()}`} 
                             alt="Target Location Screenshot" 
                             style={isScreenshotExpanded ? { width: `${zoom * 100}%`, transition: 'width 0.2s' } : {}}
                             className={`transition-all ${isScreenshotExpanded ? 'max-w-none mx-auto block' : 'w-full h-full object-cover object-top block'}`}

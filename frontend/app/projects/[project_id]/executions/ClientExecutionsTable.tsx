@@ -20,7 +20,7 @@ export default function ClientExecutionsTable({ projectId, initialExecutions }: 
   useEffect(() => {
     if (selectedExecution?.type === "scan") {
       setIsLoadingScan(true);
-      fetch(`http://127.0.0.1:8000/api/v1/scans/${selectedExecution.id || selectedExecution.execution_id}`)
+      fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/scans/${selectedExecution.id || selectedExecution.execution_id}`)
         .then(res => res.json())
         .then(data => {
           setScanReport(data);
@@ -50,9 +50,9 @@ export default function ClientExecutionsTable({ projectId, initialExecutions }: 
 
   const getImageUrl = (exec: any) => {
     if (exec.type === "visual_comparison") {
-      return `http://127.0.0.1:8000/api/v1/projects/${projectId}/executions/${exec.execution_id || exec.id}/diff`;
+      return `${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/executions/${exec.execution_id || exec.id}/diff`;
     }
-    return `http://127.0.0.1:8000/api/v1/scans/${exec.execution_id || exec.id}/screenshot`;
+    return `${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/scans/${exec.execution_id || exec.id}/screenshot`;
   };
 
   const closeModal = () => {
