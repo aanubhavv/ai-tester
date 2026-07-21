@@ -66,6 +66,7 @@ class PlaywrightExecutionService:
                     connect_options = ""
                     from app.core.config import settings
                     if settings.browserless_ws_endpoint:
+                        logger.info(f"Execution job will connect to Browserless at {settings.browserless_ws_endpoint}")
                         connect_options = f"connectOptions: {{ wsEndpoint: '{settings.browserless_ws_endpoint}' }},"
                     
                     config_content = f"""
@@ -228,6 +229,7 @@ test.afterEach(async ({ page }) => {
                     cmd_str = f"npx -y playwright test {exec_file_name} --reporter=json {headed_flag}"
                     env = os.environ.copy()
                     env["PLAYWRIGHT_JSON_OUTPUT_NAME"] = "report.json"
+                    env["NODE_OPTIONS"] = "--max-old-space-size=128"
                     
                     backend_dir = Path(__file__).resolve().parent.parent.parent.parent
                     node_modules_dir = backend_dir / "node_modules"
