@@ -62,14 +62,21 @@ class PlaywrightExecutionService:
                     temp_dir = Path(temp_dir_str)
                     
                     config_path = temp_dir / "playwright.config.ts"
-                    config_content = """
-import { defineConfig } from '@playwright/test';
-export default defineConfig({
-  use: {
+                    
+                    connect_options = ""
+                    from app.core.config import settings
+                    if settings.browserless_ws_endpoint:
+                        connect_options = f"connectOptions: {{ wsEndpoint: '{settings.browserless_ws_endpoint}' }},"
+                    
+                    config_content = f"""
+import {{ defineConfig }} from '@playwright/test';
+export default defineConfig({{
+  use: {{
     screenshot: 'only-on-failure',
-  },
+    {connect_options}
+  }},
   reporter: 'json',
-});
+}});
 """
                     with open(config_path, "w", encoding="utf-8") as f:
                         f.write(config_content.strip())

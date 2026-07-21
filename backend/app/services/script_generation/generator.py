@@ -32,11 +32,15 @@ class ScriptGenerationService:
         try:
             def _extract_and_generate():
                 with sync_playwright() as p:
-                    logger.info(f"Launching Playwright browser for {base_url}")
-                    browser = p.chromium.launch(
-                        headless=(settings.app_env != "development"),
-                        args=['--no-sandbox', '--disable-dev-shm-usage']
-                    )
+                    if settings.browserless_ws_endpoint:
+                        logger.info(f"Connecting to Browserless at {settings.browserless_ws_endpoint}")
+                        browser = p.chromium.connect_over_cdp(settings.browserless_ws_endpoint)
+                    else:
+                        logger.info(f"Launching Playwright browser for {base_url}")
+                        browser = p.chromium.launch(
+                            headless=(settings.app_env != "development"),
+                            args=['--no-sandbox', '--disable-dev-shm-usage']
+                        )
                     page = browser.new_page()
                     try:
                         logger.info("Navigating to page...")
@@ -101,11 +105,15 @@ class ScriptGenerationService:
         try:
             def _extract_and_improve():
                 with sync_playwright() as p:
-                    logger.info(f"Launching Playwright browser for {base_url} (Improvement)")
-                    browser = p.chromium.launch(
-                        headless=(settings.app_env != "development"),
-                        args=['--no-sandbox', '--disable-dev-shm-usage']
-                    )
+                    if settings.browserless_ws_endpoint:
+                        logger.info(f"Connecting to Browserless at {settings.browserless_ws_endpoint} (Improvement)")
+                        browser = p.chromium.connect_over_cdp(settings.browserless_ws_endpoint)
+                    else:
+                        logger.info(f"Launching Playwright browser for {base_url} (Improvement)")
+                        browser = p.chromium.launch(
+                            headless=(settings.app_env != "development"),
+                            args=['--no-sandbox', '--disable-dev-shm-usage']
+                        )
                     page = browser.new_page()
                     try:
                         page.goto(base_url, timeout=15000, wait_until="domcontentloaded")

@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # --- CORS Settings ---
     cors_origins: str = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 
+    # --- Playwright / Browserless Settings ---
+    browserless_ws_endpoint: str | None = None
+
     # --- ImageKit Settings ---
     imagekit_public_key: str | None = None
     imagekit_private_key: str | None = None
