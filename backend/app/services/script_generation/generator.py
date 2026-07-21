@@ -32,16 +32,24 @@ class ScriptGenerationService:
         try:
             def _extract_and_generate():
                 with sync_playwright() as p:
-                    browser = p.chromium.launch(headless=(settings.app_env != "development"))
+                    logger.info(f"Launching Playwright browser for {base_url}")
+                    browser = p.chromium.launch(
+                        headless=(settings.app_env != "development"),
+                        args=['--no-sandbox', '--disable-dev-shm-usage']
+                    )
                     page = browser.new_page()
                     try:
+                        logger.info("Navigating to page...")
                         page.goto(base_url, timeout=15000, wait_until="domcontentloaded")
                         page.wait_for_timeout(2000)
                         dom_context = page.evaluate("() => document.body.outerHTML")
                         if len(dom_context) > 50000:
                             dom_context = dom_context[:50000] + "\n...[TRUNCATED]"
+                        
+                        logger.info("Taking full page screenshot...")
                         screenshot_bytes = page.screenshot(full_page=True)
                         
+                        logger.info("Calling Gemini AI...")
                         prompt_str = prompt_manager.get_prompt(
                             task_name="script_generation/playwright",
                             tc_id=tc.tc_id,
@@ -55,11 +63,13 @@ class ScriptGenerationService:
                         
                         image_part = types.Part.from_bytes(data=screenshot_bytes, mime_type="image/png")
                         
+                        logger.info("AI call initiated. Waiting for response...")
                         raw_script = ai_service.generate_text_raw(
                             task="script_generation",
                             prompt=[prompt_str, image_part],
                             options=None
                         )
+                        logger.info("AI response received successfully.")
                         return raw_script
                     except Exception as e:
                         logger.warning(f"Failed to generate script for {base_url}: {e}")
@@ -91,7 +101,11 @@ class ScriptGenerationService:
         try:
             def _extract_and_improve():
                 with sync_playwright() as p:
-                    browser = p.chromium.launch(headless=(settings.app_env != "development"))
+                    logger.info(f"Launching Playwright browser for {base_url} (Improvement)")
+                    browser = p.chromium.launch(
+                        headless=(settings.app_env != "development"),
+                        args=['--no-sandbox', '--disable-dev-shm-usage']
+                    )
                     page = browser.new_page()
                     try:
                         page.goto(base_url, timeout=15000, wait_until="domcontentloaded")
