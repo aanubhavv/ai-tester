@@ -4,6 +4,7 @@ from typing import Optional
 
 from playwright.sync_api import sync_playwright
 
+from app.core.config import settings
 from app.services.ai.ai_service import ai_service
 from app.services.project_service import project_service
 from google.genai import types
@@ -31,7 +32,7 @@ class ScriptGenerationService:
         try:
             def _extract_and_generate():
                 with sync_playwright() as p:
-                    browser = p.chromium.launch(headless=False)
+                    browser = p.chromium.launch(headless=(settings.app_env != "development"))
                     page = browser.new_page()
                     try:
                         page.goto(base_url, timeout=15000, wait_until="domcontentloaded")
@@ -90,7 +91,7 @@ class ScriptGenerationService:
         try:
             def _extract_and_improve():
                 with sync_playwright() as p:
-                    browser = p.chromium.launch(headless=False)
+                    browser = p.chromium.launch(headless=(settings.app_env != "development"))
                     page = browser.new_page()
                     try:
                         page.goto(base_url, timeout=15000, wait_until="domcontentloaded")
