@@ -73,6 +73,9 @@ import {{ defineConfig }} from '@playwright/test';
 export default defineConfig({{
   use: {{
     screenshot: 'only-on-failure',
+    launchOptions: {{
+      args: ['--no-sandbox', '--disable-dev-shm-usage']
+    }},
     {connect_options}
   }},
   reporter: 'json',
@@ -222,7 +225,7 @@ test.afterEach(async ({ page }) => {
                         f.write(original_script + injection)
     
                     headed_flag = "--headed" if settings.app_env == "development" else ""
-                    cmd_str = f"npx playwright test {exec_file_name} --reporter=json {headed_flag}"
+                    cmd_str = f"npx -y playwright test {exec_file_name} --reporter=json {headed_flag}"
                     env = os.environ.copy()
                     env["PLAYWRIGHT_JSON_OUTPUT_NAME"] = "report.json"
                     
@@ -251,7 +254,19 @@ test.afterEach(async ({ page }) => {
                         env=env
                     )
                     PlaywrightExecutionService.active_processes[job_id] = proc
-                    stdout_str, stderr_str = proc.communicate()
+                    
+                    try:
+                        stdout_str, stderr_str = proc.communicate(timeout=90)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        stdout_str, stderr_str = proc.communicate()
+                        logger.error(f"Playwright execution timed out! stdout: {stdout_str}\nstderr: {stderr_str}")
+                        return {
+                            "status": "Failed",
+                            "duration": time.time() - start_time,
+                            "error": f"Execution timed out after 90 seconds. Stderr: {stderr_str}",
+                            "logs": stdout_str
+                        }
                     
                     result_data = {
                         "status": "Passed" if proc.returncode == 0 else "Failed",
