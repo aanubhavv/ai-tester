@@ -221,19 +221,25 @@ test.afterEach(async ({ page }) => {
                     with open(exec_file_path, "w", encoding="utf-8") as f:
                         f.write(original_script + injection)
     
-                    cmd_str = f"npx playwright test {exec_file_name} --reporter=json --headed"
+                    headed_flag = "--headed" if settings.app_env == "development" else ""
+                    cmd_str = f"npx playwright test {exec_file_name} --reporter=json {headed_flag}"
                     env = os.environ.copy()
                     env["PLAYWRIGHT_JSON_OUTPUT_NAME"] = "report.json"
                     
                     backend_dir = Path(__file__).resolve().parent.parent.parent.parent
                     node_modules_dir = backend_dir / "node_modules"
                     
-                    # Create a directory junction so Playwright natively resolves modules
-                    # without confusing its internal runner path tracking
-                    subprocess.run(
-                        ["cmd", "/c", "mklink", "/J", str(temp_dir / "node_modules"), str(node_modules_dir)],
-                        capture_output=True
-                    )
+                    import sys
+                    if sys.platform == "win32":
+                        subprocess.run(
+                            ["cmd", "/c", "mklink", "/J", str(temp_dir / "node_modules"), str(node_modules_dir)],
+                            capture_output=True
+                        )
+                    else:
+                        try:
+                            os.symlink(str(node_modules_dir), str(temp_dir / "node_modules"), target_is_directory=True)
+                        except Exception as e:
+                            logger.warning(f"Failed to symlink node_modules: {e}")
                     
                     proc = subprocess.Popen(
                         cmd_str,
