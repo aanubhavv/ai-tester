@@ -18,8 +18,8 @@ export default function DraftsPage() {
     setLoading(true);
     try {
       const [tcRes, suitesRes] = await Promise.all([
-        fetch(`http://localhost:8000/api/v1/projects/${project_id}/test-cases`),
-        fetch(`http://localhost:8000/api/v1/projects/${project_id}/planning/suites`),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${project_id}/test-cases`),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${project_id}/planning/suites`),
       ]);
       
       if (tcRes.ok) {
@@ -41,7 +41,7 @@ export default function DraftsPage() {
   const handleGenerate = async () => {
     if (!selectedSuite) return alert("Select a suite first.");
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/projects/${project_id}/test-cases/generate`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${project_id}/test-cases/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feature_name: "", suite_name: selectedSuite }) // Backend looks up feature anyway
@@ -58,7 +58,7 @@ export default function DraftsPage() {
 
   const handleApprove = async (testId: string) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/projects/${project_id}/test-cases/${testId}/approve`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${project_id}/test-cases/${testId}/approve`, {
         method: "POST"
       });
       if (res.ok) {

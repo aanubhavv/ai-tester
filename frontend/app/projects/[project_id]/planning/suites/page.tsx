@@ -7,7 +7,7 @@ export default function SuitesPage({ params }: { params: { project_id: string } 
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`http://localhost:8000/api/v1/projects/${params.project_id}/planning/suites`)
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${params.project_id}/planning/suites`)
       .then((res) => {
         if (!res.ok) throw new Error("No data found");
         return res.json();

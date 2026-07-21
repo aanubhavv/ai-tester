@@ -17,8 +17,8 @@ export default function CoveragePage() {
     setLoading(true);
     try {
       const [covRes, dupesRes] = await Promise.all([
-        fetch(`http://localhost:8000/api/v1/projects/${project_id}/test-cases/coverage`),
-        fetch(`http://localhost:8000/api/v1/projects/${project_id}/test-cases/duplicates`)
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${project_id}/test-cases/coverage`),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${project_id}/test-cases/duplicates`)
       ]);
       
       if (covRes.ok) {

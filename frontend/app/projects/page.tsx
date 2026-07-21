@@ -20,7 +20,7 @@ export default function ProjectsPage() {
   const [newPrimaryUrl, setNewPrimaryUrl] = useState("");
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/projects")
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects`)
       .then((res) => res.json())
       .then((data) => setProjects(data.projects || []))
       .catch((err) => console.error("Failed to load projects", err));
@@ -37,7 +37,7 @@ export default function ProjectsPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch("http://localhost:8000/api/v1/projects", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

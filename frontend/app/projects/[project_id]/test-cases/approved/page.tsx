@@ -15,7 +15,7 @@ export default function ApprovedPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/projects/${project_id}/test-cases`);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${project_id}/test-cases`);
       if (res.ok) {
         const data = await res.json();
         setTestCases(data.filter((tc: any) => tc.status === "Approved"));
@@ -28,7 +28,7 @@ export default function ApprovedPage() {
   };
 
   const handleExport = () => {
-    window.open(`http://localhost:8000/api/v1/projects/${project_id}/test-cases/export/csv`, '_blank');
+    window.open(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${project_id}/test-cases/export/csv`, '_blank');
   };
 
   if (loading) return <div className="animate-pulse">Loading approved tests...</div>;
