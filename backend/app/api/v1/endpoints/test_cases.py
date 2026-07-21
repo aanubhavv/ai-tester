@@ -190,7 +190,7 @@ async def _execution_job(project_id: str, tc_id: str):
             "execution_logs": result["logs"] + "\n\n[Script Failed] Triggering Self-Healing Pipeline...",
             "last_execution_timestamp": datetime.utcnow().isoformat()
         })
-        await self_healing_agent.run_healing_loop(project_id, tc_id, tc, result)
+        asyncio.create_task(self_healing_agent.run_healing_loop(project_id, tc_id, tc, result))
         return
         
     await _update_tc_internal(project_id, tc_id, {
