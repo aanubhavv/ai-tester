@@ -5,6 +5,8 @@ import time
 import subprocess
 import os
 import re
+import sys
+import signal
 import tempfile
 from pathlib import Path
 
@@ -34,7 +36,10 @@ class PlaywrightExecutionService:
         proc = cls.active_processes.get(job_id)
         if proc:
             try:
-                subprocess.run(['taskkill', '/F', '/T', '/PID', str(proc.pid)], capture_output=True)
+                if sys.platform == "win32":
+                    subprocess.run(['taskkill', '/F', '/T', '/PID', str(proc.pid)], capture_output=True)
+                else:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
             except Exception as e:
                 logger.warning(f"Failed to kill process {job_id}: {e}")
             finally:
@@ -67,7 +72,7 @@ class PlaywrightExecutionService:
                     from app.core.config import settings
                     if settings.browserless_ws_endpoint:
                         logger.info(f"Execution job will connect to Browserless at {settings.browserless_ws_endpoint}")
-                        connect_options = f"connectOptions: {{ wsEndpoint: '{settings.browserless_ws_endpoint}' }},"
+                        connect_options = f"cdpUrl: '{settings.browserless_ws_endpoint}',"
                     
                     config_content = f"""
 import {{ defineConfig }} from '@playwright/test';
@@ -246,8 +251,7 @@ test.afterEach(async ({ page }) => {
                         except Exception as e:
                             logger.warning(f"Failed to symlink node_modules: {e}")
                     
-                    proc = subprocess.Popen(
-                        cmd_str,
+                    popen_kwargs = dict(
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         cwd=str(temp_dir),
@@ -255,12 +259,19 @@ test.afterEach(async ({ page }) => {
                         shell=True,
                         env=env
                     )
+                    if sys.platform != "win32":
+                        popen_kwargs["preexec_fn"] = os.setsid
+                    
+                    proc = subprocess.Popen(cmd_str, **popen_kwargs)
                     PlaywrightExecutionService.active_processes[job_id] = proc
                     
                     try:
                         stdout_str, stderr_str = proc.communicate(timeout=90)
                     except subprocess.TimeoutExpired:
-                        proc.kill()
+                        if sys.platform == "win32":
+                            proc.kill()
+                        else:
+                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                         stdout_str, stderr_str = proc.communicate()
                         logger.error(f"Playwright execution timed out! stdout: {stdout_str}\nstderr: {stderr_str}")
                         return {
