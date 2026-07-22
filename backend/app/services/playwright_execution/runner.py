@@ -306,7 +306,7 @@ test.afterEach(async ({ page }) => {
                     PlaywrightExecutionService.active_processes[job_id] = proc
                     
                     try:
-                        stdout_str, stderr_str = proc.communicate(timeout=150)
+                        stdout_str, stderr_str = proc.communicate(timeout=90)
                     except subprocess.TimeoutExpired:
                         if sys.platform == "win32":
                             proc.kill()
@@ -317,7 +317,7 @@ test.afterEach(async ({ page }) => {
                         return {
                             "status": "Failed",
                             "duration": time.time() - start_time,
-                            "error": f"Execution timed out after 150 seconds. Stderr: {stderr_str}",
+                            "error": f"Execution timed out after 90 seconds. Stderr: {stderr_str}",
                             "logs": stdout_str
                         }
                     
