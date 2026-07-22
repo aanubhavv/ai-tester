@@ -100,8 +100,11 @@ class PlaywrightExecutionService:
                     config_content = f"""
 import {{ defineConfig }} from '@playwright/test';
 export default defineConfig({{
+  timeout: 60000,
   use: {{
     screenshot: 'only-on-failure',
+    navigationTimeout: 15000,
+    actionTimeout: 10000,
     launchOptions: {{
       args: ['--no-sandbox', '--disable-dev-shm-usage']
     }},
@@ -264,7 +267,7 @@ test.afterEach(async ({ page }) => {
 
                     env = os.environ.copy()
                     env["PLAYWRIGHT_JSON_OUTPUT_NAME"] = "report.json"
-                    env["NODE_OPTIONS"] = "--max-old-space-size=128"
+                    env["NODE_OPTIONS"] = "--max-old-space-size=512"
                     
                     backend_dir = Path(__file__).resolve().parent.parent.parent.parent
                     node_modules_dir = backend_dir / "node_modules"
