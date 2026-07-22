@@ -93,16 +93,10 @@ class PlaywrightExecutionService:
                     config_path = temp_dir / "playwright.config.ts"
                     
                     from app.core.config import settings
-                    use_remote = bool(settings.browserless_ws_endpoint)
                     
-                    if use_remote:
-                        logger.info(f"Execution job will connect to Browserless at {settings.browserless_ws_endpoint}")
-                        # When connecting to a remote browser, launchOptions are
-                        # irrelevant — the browser is already running remotely.
-                        browser_options = f"connectOptions: {{ wsEndpoint: '{settings.browserless_ws_endpoint}' }},"
-                    else:
-                        # Local browser: need sandbox and shm flags for Linux servers.
-                        browser_options = """launchOptions: {
+                    # Force local execution (headless Playwright) for test execution, ignoring Browserless
+                    # Local browser: need sandbox and shm flags for Linux servers.
+                    browser_options = """launchOptions: {
       args: ['--no-sandbox', '--disable-dev-shm-usage']
     },"""
                     
