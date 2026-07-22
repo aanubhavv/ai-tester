@@ -52,7 +52,8 @@ async def generate_test_cases(project_id: str, background_tasks: BackgroundTasks
         docs_context_str = "\n".join(docs_content) if docs_content else "No knowledge base documents."
         
         try:
-            generated_tests = generation_service.generate_direct(
+            generated_tests = await asyncio.to_thread(
+                generation_service.generate_direct,
                 project_id=project_id,
                 project_context=project_context,
                 docs_content=docs_context_str
@@ -61,7 +62,7 @@ async def generate_test_cases(project_id: str, background_tasks: BackgroundTasks
         except Exception as e:
             print(f"Failed to generate tests: {e}")
 
-    background_tasks.add_task(background_generation)
+    asyncio.create_task(background_generation())
     return {"message": "Direct Generation started."}
 
 @router.get("/{project_id}/test-cases", response_model=List[TestCase])
