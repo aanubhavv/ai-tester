@@ -117,7 +117,7 @@ export default defineConfig({{
     {browser_options}
   }},
   outputDir: './test-results',
-  reporter: 'json',
+  reporter: [['list'], ['json', {{ outputFile: 'report.json' }}]],
 }});
 """
                     with open(config_path, "w", encoding="utf-8") as f:
@@ -267,7 +267,7 @@ test.afterEach(async ({ page }) => {
 
                     cmd = [
                         npx_executable, "-y", "playwright", "test",
-                        exec_file_name, "--reporter=json",
+                        exec_file_name
                     ]
                     if settings.app_env == "development":
                         cmd.append("--headed")
@@ -275,6 +275,7 @@ test.afterEach(async ({ page }) => {
                     env = os.environ.copy()
                     env["PLAYWRIGHT_JSON_OUTPUT_NAME"] = "report.json"
                     env["NODE_OPTIONS"] = "--max-old-space-size=512"
+                    env["DEBUG"] = "pw:browser*"
                     
                     backend_dir = Path(__file__).resolve().parent.parent.parent.parent
                     node_modules_dir = backend_dir / "node_modules"
