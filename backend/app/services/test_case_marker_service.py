@@ -4,6 +4,7 @@ import numpy as np
 import json
 import uuid
 import base64
+import asyncio
 
 from app.db.imagekit_config import get_imagekit
 from imagekitio.models.UploadFileRequestOptions import UploadFileRequestOptions
@@ -25,7 +26,7 @@ class TestCaseMarkerService:
         draws a bounding box on the screenshot bytes, uploads it to ImageKit,
         and returns the ImageKit URL.
         """
-        project = project_service.get_project(project_id)
+        project = asyncio.run(project_service.get_project(project_id))
         if not project:
             logger.error(f"Cannot mark target for {tc.tc_id}: Project not found")
             return None

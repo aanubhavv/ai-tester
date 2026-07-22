@@ -58,6 +58,8 @@ class SelfHealingAgent:
                     history_text += f"\nAttempt {i+1} Script:\n```typescript\n{hist['script']}\n```\nAttempt {i+1} Error:\n{hist['error']}\n"
                 history_text += "\nDo NOT repeat the exact same script from previous attempts. Try a different approach (e.g. use different locators, wait for states, etc.).\n"
 
+            has_screenshot = "failure_screenshot_bytes" in current_result
+            
             prompt = f"""
 You are a Senior QA Automation Engineer. A Playwright script has failed during execution.
 
@@ -87,7 +89,7 @@ Example 2 (Strict Mode Violation):
 Error: strict mode violation: locator('button') resolved to 5 elements.
 Fix: Use a more specific locator based on the visual text or context, such as `await page.getByRole('button', {{ name: 'Submit' }}).click();` or `await page.locator('button').first().click();`.
 
-Analyze the failure. Look at the attached screenshot CAREFULLY.
+Analyze the failure.{' Look at the attached screenshot CAREFULLY.' if has_screenshot else ''}
 1. If the script is broken (e.g. strict selector failing, missing wait, logic error, or the UI has changed), set `is_website_bug` to false and provide the `fixed_script`. **CRITICAL**: Use the visual context from the screenshot and the DOM Snapshot to figure out the correct selector.
 2. If the script is perfectly fine and correctly verifying the Expected Result, but the website itself is broken or the feature is missing, set `is_website_bug` to true and explain the bug in `analysis`.
 
@@ -95,11 +97,11 @@ Return the JSON object according to the schema.
 If you provide a fixed_script, ensure it is the FULL, valid TypeScript script, ready to run.
 """
             
-            final_prompt = prompt
-            
-            # Since playwright might not have generated a screenshot directly in runner (we removed local disk), 
-            # we rely on dom_snapshot or screenshot_bytes if we had them. But failed executions often don't have target screenshot.
-            # We'll just pass the text prompt.
+            if has_screenshot:
+                image_part = types.Part.from_bytes(data=current_result["failure_screenshot_bytes"], mime_type="image/png")
+                final_prompt = [prompt, image_part]
+            else:
+                final_prompt = prompt
             
             await self._update_logs(project_id, tc_id, f"\n\n--- Self-Healing Attempt {attempt}/{max_retries} ---\nAnalyzing failure...")
             

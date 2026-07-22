@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import glob
 import json
 import logging
 import os
@@ -91,11 +92,19 @@ class PlaywrightExecutionService:
                     
                     config_path = temp_dir / "playwright.config.ts"
                     
-                    connect_options = ""
                     from app.core.config import settings
-                    if settings.browserless_ws_endpoint:
+                    use_remote = bool(settings.browserless_ws_endpoint)
+                    
+                    if use_remote:
                         logger.info(f"Execution job will connect to Browserless at {settings.browserless_ws_endpoint}")
-                        connect_options = f"cdpUrl: '{settings.browserless_ws_endpoint}',"
+                        # When connecting to a remote browser, launchOptions are
+                        # irrelevant — the browser is already running remotely.
+                        browser_options = f"connectOptions: {{ wsEndpoint: '{settings.browserless_ws_endpoint}' }},"
+                    else:
+                        # Local browser: need sandbox and shm flags for Linux servers.
+                        browser_options = """launchOptions: {
+      args: ['--no-sandbox', '--disable-dev-shm-usage']
+    },"""
                     
                     config_content = f"""
 import {{ defineConfig }} from '@playwright/test';
@@ -105,11 +114,9 @@ export default defineConfig({{
     screenshot: 'only-on-failure',
     navigationTimeout: 15000,
     actionTimeout: 10000,
-    launchOptions: {{
-      args: ['--no-sandbox', '--disable-dev-shm-usage']
-    }},
-    {connect_options}
+    {browser_options}
   }},
+  outputDir: './test-results',
   reporter: 'json',
 }});
 """
@@ -334,13 +341,35 @@ test.afterEach(async ({ page }) => {
                                                 if error_msg:
                                                     result_data["error"] = clean_text_for_excel(error_msg)
                                                 for attachment in result.get('attachments', []):
-                                                    # For actual playwright failure screenshots, they are usually in test-results, 
-                                                    # but since we didn't specify output dir, they might be discarded or we'll rely on the dom_snapshot.
-                                                    pass
+                                                    if attachment.get('name') == 'screenshot' and attachment.get('path'):
+                                                        att_path = Path(attachment['path'])
+                                                        if not att_path.is_absolute():
+                                                            att_path = temp_dir / att_path
+                                                        if att_path.exists():
+                                                            try:
+                                                                with open(att_path, 'rb') as af:
+                                                                    result_data['failure_screenshot_bytes'] = af.read()
+                                                                    logger.info(f"Captured failure screenshot from {att_path}")
+                                                            except Exception as att_e:
+                                                                logger.warning(f"Failed to read attachment screenshot: {att_e}")
                         except Exception as parse_e:
                             logger.warning(f"Failed to parse report.json: {parse_e}")
                     elif proc.returncode != 0 and not result_data["error"]:
                         result_data["error"] = "Execution failed but no report.json was generated. Check logs."
+                    
+                    # Fallback: if report.json didn't yield a failure screenshot,
+                    # scan the test-results directory for any .png files.
+                    if 'failure_screenshot_bytes' not in result_data and proc.returncode != 0:
+                        test_results_dir = temp_dir / "test-results"
+                        if test_results_dir.exists():
+                            png_files = list(test_results_dir.rglob("*.png"))
+                            if png_files:
+                                try:
+                                    with open(png_files[0], 'rb') as sf:
+                                        result_data['failure_screenshot_bytes'] = sf.read()
+                                        logger.info(f"Captured fallback failure screenshot from {png_files[0]}")
+                                except Exception as fb_e:
+                                    logger.warning(f"Failed to read fallback screenshot: {fb_e}")
                         
                     dom_file = temp_dir / "failed_dom.html"
                     if dom_file.exists():

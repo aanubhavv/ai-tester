@@ -10,6 +10,7 @@ from google.genai import types
 from app.services.project_service import project_service
 from app.services.ai.ai_service import ai_service
 from app.services.ai.prompt_manager import prompt_manager
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,15 @@ class ExplorationService:
         
         def _explore():
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                if settings.browserless_ws_endpoint:
+                    logger.info(f"AI Explorer connecting to Browserless at {settings.browserless_ws_endpoint}")
+                    browser = p.chromium.connect_over_cdp(settings.browserless_ws_endpoint)
+                else:
+                    logger.info("AI Explorer launching local Playwright browser")
+                    browser = p.chromium.launch(
+                        headless=(settings.app_env != "development"),
+                        args=['--no-sandbox', '--disable-dev-shm-usage']
+                    )
                 context = browser.new_context(viewport={'width': 1280, 'height': 800})
                 page = context.new_page()
                 

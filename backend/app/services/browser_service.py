@@ -12,6 +12,7 @@ from app.schemas.scan import ScanOptions
 from app.services.page_readiness import PageReadinessEngine, ReadinessConfig
 from app.services.readiness_models import ReadinessResult
 from app.services.analysis_service import AnalysisService, EventCollector, to_analysis_response
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,15 @@ class BrowserService:
 
         try:
             with sync_playwright() as playwright:
-                browser = playwright.chromium.launch(headless=options.headless)
+                if settings.browserless_ws_endpoint:
+                    logger.info(f"Scan connecting to Browserless at {settings.browserless_ws_endpoint}")
+                    browser = playwright.chromium.connect_over_cdp(settings.browserless_ws_endpoint)
+                else:
+                    logger.info(f"Scan launching local Playwright browser (headless={options.headless})")
+                    browser = playwright.chromium.launch(
+                        headless=options.headless,
+                        args=['--no-sandbox', '--disable-dev-shm-usage']
+                    )
 
                 try:
                     page = browser.new_page()
