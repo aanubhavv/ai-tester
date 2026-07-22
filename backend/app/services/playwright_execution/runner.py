@@ -1,19 +1,42 @@
 import asyncio
+import functools
 import json
 import logging
-import time
-import subprocess
 import os
 import re
-import sys
+import shutil
 import signal
+import subprocess
+import sys
 import tempfile
+import time
 from pathlib import Path
 
 from app.schemas.test_cases.models import TestCase
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=1)
+def get_npx_path() -> str:
+    """
+    Resolve the absolute path to the `npx` executable.
+
+    Uses shutil.which() to locate npx on the system PATH and caches the result.
+    Raises RuntimeError with a descriptive message if npx cannot be found.
+    """
+    npx_path = shutil.which("npx")
+    if npx_path is None:
+        raise RuntimeError(
+            "Playwright execution failed: 'npx' executable not found on PATH. "
+            "Ensure Node.js is installed and the PATH environment variable includes "
+            "the directory containing 'npx' (e.g. /usr/bin or /usr/local/bin). "
+            "If running as a systemd service, update the Environment directive "
+            "to include the correct path."
+        )
+    logger.info(f"Resolved npx executable at: {npx_path}")
+    return npx_path
 
 def clean_text_for_excel(text: str) -> str:
     if not text:
@@ -230,8 +253,15 @@ test.afterEach(async ({ page }) => {
                     with open(exec_file_path, "w", encoding="utf-8") as f:
                         f.write(original_script + injection)
     
-                    headed_flag = "--headed" if settings.app_env == "development" else ""
-                    cmd_str = f"npx -y playwright test {exec_file_name} --reporter=json {headed_flag}"
+                    npx_executable = get_npx_path()
+
+                    cmd = [
+                        npx_executable, "-y", "playwright", "test",
+                        exec_file_name, "--reporter=json",
+                    ]
+                    if settings.app_env == "development":
+                        cmd.append("--headed")
+
                     env = os.environ.copy()
                     env["PLAYWRIGHT_JSON_OUTPUT_NAME"] = "report.json"
                     env["NODE_OPTIONS"] = "--max-old-space-size=128"
@@ -239,7 +269,6 @@ test.afterEach(async ({ page }) => {
                     backend_dir = Path(__file__).resolve().parent.parent.parent.parent
                     node_modules_dir = backend_dir / "node_modules"
                     
-                    import sys
                     if sys.platform == "win32":
                         subprocess.run(
                             ["cmd", "/c", "mklink", "/J", str(temp_dir / "node_modules"), str(node_modules_dir)],
@@ -256,13 +285,13 @@ test.afterEach(async ({ page }) => {
                         stderr=subprocess.PIPE,
                         cwd=str(temp_dir),
                         text=True,
-                        shell=True,
-                        env=env
+                        env=env,
                     )
                     if sys.platform != "win32":
                         popen_kwargs["preexec_fn"] = os.setsid
                     
-                    proc = subprocess.Popen(cmd_str, **popen_kwargs)
+                    logger.info(f"Executing Playwright command: {cmd}")
+                    proc = subprocess.Popen(cmd, **popen_kwargs)
                     PlaywrightExecutionService.active_processes[job_id] = proc
                     
                     try:
