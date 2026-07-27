@@ -72,10 +72,22 @@ export default function BrowserLiveView({ jobId, wsBaseUrl, onDone }: BrowserLiv
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const getWsUrl = useCallback(() => {
-    const base = wsBaseUrl
-      || (typeof window !== "undefined"
-          ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.hostname}:8000`
-          : "ws://localhost:8000");
+    if (wsBaseUrl) return `${wsBaseUrl}/ws/browser/${jobId}`;
+
+    if (process.env.NEXT_PUBLIC_WS_URL) {
+      return `${process.env.NEXT_PUBLIC_WS_URL}/ws/browser/${jobId}`;
+    }
+
+    if (process.env.NEXT_PUBLIC_API_URL) {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const wsProto = apiUrl.startsWith("https") ? "wss:" : "ws:";
+      const host = apiUrl.replace(/^https?:\/\//, "");
+      return `${wsProto}//${host}/ws/browser/${jobId}`;
+    }
+
+    const base = typeof window !== "undefined"
+      ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.hostname}:8000`
+      : "ws://localhost:8000";
     return `${base}/ws/browser/${jobId}`;
   }, [wsBaseUrl, jobId]);
 
