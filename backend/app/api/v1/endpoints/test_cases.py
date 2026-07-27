@@ -17,6 +17,7 @@ from app.services.playwright_execution.self_healing_agent import self_healing_ag
 from app.services.execution.queue import execution_queue
 from app.services.script_generation.generator import script_generator
 from app.services.playwright_execution.runner import execution_runner, PlaywrightExecutionService
+from app.services.playwright_execution.browser_stream_manager import browser_stream_manager
 from app.services.test_case_marker_service import test_case_marker_service
 
 router = APIRouter()
@@ -170,8 +171,25 @@ async def _execution_job(project_id: str, tc_id: str):
     tc = next((t for t in tests if t.id == tc_id), None)
     if not tc: return
     
-    result = await execution_runner.execute_script(project_id, tc)
+    # --- Live browser streaming setup ---
+    job_id = f"{project_id}_{tc_id}"
     
+    # Signal the frontend that the test execution has started running
+    await browser_stream_manager.put_frame(job_id, {
+        "type": "status",
+        "value": "running",
+    })
+
+    try:
+        # Run the actual Playwright test
+        result = await execution_runner.execute_script(project_id, tc)
+    finally:
+        # Send the None sentinel so WS clients close gracefully
+        browser_stream_manager.close_job(job_id)
+        await asyncio.sleep(0.5)
+        browser_stream_manager.cleanup_job(job_id)
+
+
     if settings.enable_target_screenshot and "screenshot_bytes" in result and "layout_json" in result:
         try:
             screenshot_url = await asyncio.to_thread(
@@ -219,6 +237,15 @@ async def bulk_generate_scripts(project_id: str, req: BulkActionRequest) -> Any:
 async def bulk_execute_scripts(project_id: str, req: BulkActionRequest) -> Any:
     for tc_id in req.test_case_ids:
         await _update_tc_internal(project_id, tc_id, {"execution_status": "Queued"})
+        
+        # Create the streaming job immediately so the frontend WS client can connect
+        job_id_exec = f"{project_id}_{tc_id}"
+        browser_stream_manager.create_job(job_id_exec)
+        await browser_stream_manager.put_frame(job_id_exec, {
+            "type": "status",
+            "value": "queued"
+        })
+        
         execution_queue.enqueue(
             job_id=f"exe_{tc_id}",
             job_type="execute",

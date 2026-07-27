@@ -12,6 +12,11 @@ const CodeEditor = dynamic(
   { ssr: false }
 );
 
+const BrowserLiveView = dynamic(
+  () => import('@/components/BrowserLiveView'),
+  { ssr: false }
+);
+
 export default function ClientTestCases({ initialTestCases, projectId }: { initialTestCases: any[], projectId: string }) {
   const router = useRouter();
   const { success, error } = useToast();
@@ -29,6 +34,7 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
   const [showImproveInput, setShowImproveInput] = useState(false);
   const [isScreenshotExpanded, setIsScreenshotExpanded] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [activeStreamingTcId, setActiveStreamingTcId] = useState<string | null>(null);
 
   useEffect(() => {
     // Poll for updates if any scripts are generating or queued
@@ -40,10 +46,10 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
     if (hasActiveJobs) {
       const interval = setInterval(() => {
         router.refresh();
-      }, 3000);
+      }, 1000);
       return () => clearInterval(interval);
     }
-  }, [initialTestCases, router]);
+  }, [initialTestCases, router, activeStreamingTcId]);
 
   const toggleSelectAll = () => {
     if (selectedTestIds.length === initialTestCases.length) {
@@ -273,6 +279,12 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
               </button>
               <button 
                 onClick={async () => {
+                  // Open live view immediately for the first selected test
+                  // so the WebSocket connects BEFORE the backend starts streaming.
+                  // This avoids the polling lag (was 3s) that caused missed frames.
+                  if (selectedTestIds.length > 0) {
+                    setActiveStreamingTcId(selectedTestIds[0]);
+                  }
                   try {
                     await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/projects/${projectId}/test-cases/scripts/execute`, {
                       method: "POST",
@@ -475,7 +487,77 @@ export default function ClientTestCases({ initialTestCases, projectId }: { initi
         )}
       </div>
 
+      {/* ── Live Browser View Panel ─────────────────────────────────────────── */}
+      {activeStreamingTcId && (() => {
+        const streamingTc = initialTestCases.find(tc => tc.id === activeStreamingTcId);
+        const jobId = `${projectId}_${activeStreamingTcId}`;
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+        let wsBase: string;
+        if (apiUrl) {
+          wsBase = apiUrl.replace(/^http/, 'ws').replace(/\/+$/, '');
+        } else if (typeof window !== "undefined") {
+          wsBase = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.hostname}:8000`;
+        } else {
+          wsBase = "ws://localhost:8000";
+        }
+
+        return (
+          <div className="fixed bottom-0 right-0 w-full md:w-[600px] lg:w-[720px] z-40 p-4 animate-in slide-in-from-bottom-4 duration-300">
+            <div className="relative">
+              {/* Close button */}
+              <button
+                onClick={() => setActiveStreamingTcId(null)}
+                className="absolute -top-2 -right-2 z-50 h-6 w-6 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors shadow-lg"
+                title="Close live view"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+
+              <div className="mb-1.5 flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500" />
+                  </span>
+                  <span className="text-xs font-semibold text-purple-400 uppercase tracking-widest">
+                    Live Browser View
+                  </span>
+                </div>
+                {streamingTc && (
+                  <>
+                    <span className="text-xs text-zinc-600">—</span>
+                    <span className="text-xs text-zinc-300 font-medium truncate max-w-[200px]" title={streamingTc.title}>
+                      {streamingTc.tc_id}: {streamingTc.title}
+                    </span>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] uppercase font-bold border ml-2
+                      ${streamingTc.execution_status === 'Passed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                        streamingTc.execution_status === 'Failed' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                        streamingTc.execution_status === 'Running' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20 animate-pulse' :
+                        'bg-zinc-800 text-zinc-400 border-zinc-700'
+                      }
+                    `}>
+                      {streamingTc.execution_status || 'Not Executed'}
+                    </span>
+                  </>
+                )}
+              </div>
+
+              <BrowserLiveView
+                jobId={jobId}
+                wsBaseUrl={wsBase}
+                onDone={() => {
+                  // Keep panel for 4s after test finishes so user sees final frame
+                  setTimeout(() => setActiveStreamingTcId(null), 4000);
+                }}
+              />
+            </div>
+          </div>
+        );
+      })()}
+
+
       {/* Details Modal */}
+
       {selectedCase && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 sm:p-6">
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">

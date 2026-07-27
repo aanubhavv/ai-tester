@@ -8,6 +8,7 @@ from app.core.logging import setup_logging
 from app.core.exceptions import global_exception_handler
 from app.api.v1.router import api_router
 from app.api.v1.endpoints.root import router as root_router
+from app.api.v1.endpoints.browser_stream import router as browser_stream_router
 from app.services.execution.queue import execution_queue
 from app.db.mongodb import connect_to_mongo, close_mongo_connection
 from app.db.imagekit_config import setup_imagekit
@@ -54,6 +55,9 @@ app.add_exception_handler(Exception, global_exception_handler)
 
 # Include root endpoint
 app.include_router(root_router)
+
+# Include WebSocket browser streaming endpoint (no API prefix — WS path is /ws/browser/{job_id})
+app.include_router(browser_stream_router)
 
 # Include API v1 endpoints
 app.include_router(api_router, prefix=settings.api_prefix)
