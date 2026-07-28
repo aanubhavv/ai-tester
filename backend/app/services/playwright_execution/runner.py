@@ -129,8 +129,8 @@ export default AIStreamReporter;
             from app.core.config import settings
             
             browser_options = """launchOptions: {
-      args: ['--no-sandbox', '--disable-dev-shm-usage'],
-      slowMo: 1000
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+      slowMo: 100
     },"""
             
             config_content = f"""
@@ -197,9 +197,17 @@ test.beforeEach(async ({{ page }}) => {{
     await client.send('Page.startScreencast', {{ format: 'jpeg', quality: 50, everyNthFrame: 1 }});
     client.on('Page.screencastFrame', async (frame) => {{
       activeScreencastFetches++;
+      const ack = async () => {{
+        try {{
+          await client.send('Page.screencastFrameAck', {{ sessionId: frame.sessionId }});
+        }} catch(e) {{}}
+        activeScreencastFetches = Math.max(0, activeScreencastFetches - 1);
+      }};
+
       try {{
+        const backendPort = process.env.BACKEND_PORT || "8000";
         const endpoint = '/api/v1/browser-stream/{job_id}/frame';
-        const url = `http://127.0.0.1:8000${{endpoint}}`;
+        const url = `http://127.0.0.1:${{backendPort}}${{endpoint}}`;
         const http = require('http');
         const req = http.request(url, {{
             method: 'POST',
@@ -208,14 +216,12 @@ test.beforeEach(async ({{ page }}) => {{
                 'Content-Length': Buffer.byteLength(frame.data)
             }}
         }});
-        req.on('error', () => {{}});
+        req.on('error', () => {{ ack(); }});
+        req.on('response', () => {{ ack(); }});
         req.write(frame.data);
         req.end();
       }} catch(e) {{
-          console.error("Frame send error:", e);
-      }} finally {{
-        await client.send('Page.screencastFrameAck', {{ sessionId: frame.sessionId }}).catch(() => {{}});
-        activeScreencastFetches--;
+        ack();
       }}
     }});
   }} catch (e) {{
@@ -371,6 +377,7 @@ test.afterEach(async ({ page }) => {
             env = os.environ.copy()
             env["PLAYWRIGHT_JSON_OUTPUT_NAME"] = "report.json"
             env["NODE_OPTIONS"] = "--max-old-space-size=512"
+            env["BACKEND_PORT"] = str(getattr(settings, "port", os.getenv("PORT", "8000")))
             
             backend_dir = Path(__file__).resolve().parent.parent.parent.parent
             node_modules_dir = backend_dir / "node_modules"
